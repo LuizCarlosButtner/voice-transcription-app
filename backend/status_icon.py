@@ -79,6 +79,7 @@ class VoiceTranscriptionTrayApp(rumps.App):
         self.menu.add(rumps.separator)
 
         # 5. Atalhos de utilitários
+        self.menu.add(rumps.MenuItem("Abrir Painel de Controle (Web)...", callback=self.on_open_web_ui))
         self.menu.add(rumps.MenuItem("Abrir Pasta do Histórico...", callback=self.on_open_history_folder))
         self.menu.add(rumps.MenuItem("Ver Documentação e Atalhos...", callback=self.on_open_docs))
         self.menu.add(rumps.separator)
@@ -128,6 +129,12 @@ class VoiceTranscriptionTrayApp(rumps.App):
         sender.state = 1 if is_autostart_installed() else 0
         status_msg = "Ativado" if is_autostart_installed() else "Desativado"
         rumps.notification("Voice Transcription", "Inicialização com macOS", f"Auto-start {status_msg}")
+
+    def on_open_web_ui(self, sender):
+        import webbrowser
+        settings = get_settings()
+        url = f"http://{settings.host}:{settings.port}/"
+        webbrowser.open(url)
 
     def on_open_history_folder(self, sender):
         BASE_APP_DIR.mkdir(parents=True, exist_ok=True)

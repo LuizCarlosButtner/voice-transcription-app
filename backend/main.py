@@ -10,6 +10,8 @@ from typing import Optional, Dict, Any, List
 
 from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import uvicorn
 
@@ -255,6 +257,25 @@ def save_settings_endpoint(payload: SettingsUpdate):
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     updated = update_settings(updates)
     return updated
+
+@app.get("/audio/{entry_id}")
+def get_audio_file(entry_id: str):
+    """Serve o arquivo de áudio gravado (.wav) para streaming e reprodução no player web."""
+    entry = history_manager.get_entry(entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Registro não encontrado no histórico")
+    audio_path_str = entry.get("audio_path")
+    if not audio_path_str:
+        raise HTTPException(status_code=404, detail="Caminho de áudio não registrado")
+    audio_path = Path(audio_path_str)
+    if not audio_path.exists() or audio_path.stat().st_size == 0:
+        raise HTTPException(status_code=404, detail="Arquivo de áudio não encontrado no disco")
+    return FileResponse(str(audio_path), media_type="audio/wav", filename=f"{entry_id}.wav")
+
+# Monta arquivos estáticos do frontend (HTML, CSS, JS) na raiz
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+FRONTEND_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
 def run_server():
     settings = get_settings()

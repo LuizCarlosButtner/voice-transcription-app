@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Transcription — Painel de Controle</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎙️</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="dark-theme">
+  <!-- Topbar / Navbar -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand">
+        <div class="brand-icon-pulse">
+          <span class="mic-glyph">🎙️</span>
+        </div>
+        <div class="brand-text">
+          <h1>Voice Transcription <span class="badge badge-version">v1.0.0</span></h1>
+          <p class="subtitle">Ditado Universal com Ajuste de Tom para macOS</p>
+        </div>
+      </div>
+
+      <div class="header-status">
+        <div class="status-pill" id="daemon-connection-pill">
+          <span class="status-dot dot-online"></span>
+          <span class="status-label" id="daemon-status-text">Conectando...</span>
+        </div>
+        <div class="shortcut-pill" title="Atalho global do macOS">
+          <span class="shortcut-key" id="active-hotkey-badge">⌥ Option</span>
+          <span class="shortcut-desc">Push-to-Talk</span>
+        </div>
+        <button class="btn btn-icon" id="btn-refresh-all" title="Atualizar dados agora">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-container">
+    <!-- Row: Metrics & Health Cards -->
+    <section class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Provedor Primário</span>
+          <span class="metric-icon">⚡</span>
+        </div>
+        <div class="metric-value" id="metric-provider">Groq Cloud</div>
+        <div class="metric-sub" id="metric-provider-sub">Whisper-large-v3-turbo (Nuvem)</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Tom Ativo</span>
+          <span class="metric-icon">🎭</span>
+        </div>
+        <div class="metric-value highlight" id="metric-active-tone">Verbatim</div>
+        <div class="metric-sub">Sem filtro, palavras originais</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Permissões macOS</span>
+          <span class="metric-icon">🛡️</span>
+        </div>
+        <div class="metric-tags">
+          <span class="badge" id="badge-perm-mic">Microfone: ...</span>
+          <span class="badge" id="badge-perm-ax">Acessibilidade: ...</span>
+        </div>
+        <div class="metric-sub" id="metric-front-app">App em foco: Detectando...</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Estatísticas</span>
+          <span class="metric-icon">📊</span>
+        </div>
+        <div class="metric-value" id="metric-total-count">0</div>
+        <div class="metric-sub" id="metric-stats-detail">0 sucessos · 0 erros</div>
+      </div>
+    </section>
+
+    <!-- Studio Hero: Record & Tone Switcher -->
+    <section class="studio-card">
+      <div class="studio-header">
+        <div>
+          <h2>Estúdio de Voz & Tom</h2>
+          <p class="section-desc">Selecione o tom desejado na hora e dite usando o atalho global ou o microfone interativo.</p>
+        </div>
+        <div class="mode-indicator" id="mode-indicator-badge">
+          Modo: <strong>Push-and-Hold (Segure para falar)</strong>
+        </div>
+      </div>
+
+      <!-- Tone Chips Grid -->
+      <div class="tones-grid" id="tones-selector-grid">
+        <button class="tone-card active" data-tone="verbatim">
+          <div class="tone-card-top">
+            <span class="tone-emoji">🎯</span>
+            <span class="tone-check">✓ Ativo</span>
+          </div>
+          <div class="tone-title">Verbatim</div>
+          <div class="tone-tag">Sem Filtro</div>
+          <p class="tone-desc">Usa suas palavras exatas sem censura (gírias e palavrões inclusos), com pontuação e maiúsculas automáticas.</p>
+        </button>
+
+        <button class="tone-card" data-tone="colloquial">
+          <div class="tone-card-top">
+            <span class="tone-emoji">☕</span>
+            <span class="tone-check">✓ Ativo</span>
+          </div>
+          <div class="tone-title">Coloquial</div>
+          <div class="tone-tag">Natural & Solto</div>
+          <p class="tone-desc">Reaproveita seu vocabulário de forma suave, espontânea e descontraída para chats e mensagens informais.</p>
+        </button>
+
+        <button class="tone-card" data-tone="semiformal">
+          <div class="tone-card-top">
+            <span class="tone-emoji">💼</span>
+            <span class="tone-check">✓ Ativo</span>
+          </div>
+          <div class="tone-title">Semiformal</div>
+          <div class="tone-tag">Profissional Diário</div>
+          <p class="tone-desc">Equilíbrio perfeito de clareza, respeito e objetividade para Slack, e-mails de rotina e notas de trabalho.</p>
+        </button>
+
+        <button class="tone-card" data-tone="formal">
+          <div class="tone-card-top">
+            <span class="tone-emoji">🏛️</span>
+            <span class="tone-check">✓ Ativo</span>
+          </div>
+          <div class="tone-title">Formal</div>
+          <div class="tone-tag">Polido & Refinado</div>
+          <p class="tone-desc">Eleva o registro formal mantendo o sentido original, sem clichês vazios ou polidez artificial.</p>
+        </button>
+      </div>
+
+      <!-- Live Mic / Recording Center -->
+      <div class="recording-center">
+        <div class="mic-button-wrapper">
+          <canvas id="visualizer-canvas" class="visualizer-canvas" width="280" height="280"></canvas>
+          <button class="mic-hero-button" id="btn-hero-mic" title="Clique para Gravar ou Testar pelo Navegador">
+            <div class="mic-inner-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="38" height="38">
+                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+              </svg>
+            </div>
+          </button>
+        </div>
+
+        <div class="recording-info">
+          <div class="recording-timer" id="recording-timer">00:00</div>
+          <div class="recording-state-label" id="recording-state-label">Pronto para ouvir</div>
+          <p class="recording-hint">Dica: No sistema, você pode simplesmente <strong>segurar Option (⌥)</strong> em qualquer janela do Mac!</p>
+        </div>
+
+        <!-- Live Result Banner (appears after browser test transcription) -->
+        <div class="live-result-box" id="live-result-box" style="display: none;">
+          <div class="live-result-header">
+            <span class="badge badge-success">Transcrição Concluída</span>
+            <div class="live-result-actions">
+              <button class="btn btn-sm btn-outline" id="btn-copy-live">Copiar</button>
+              <button class="btn btn-sm btn-ghost" id="btn-close-live">✕</button>
+            </div>
+          </div>
+          <div class="live-result-text" id="live-result-text"></div>
+          <div class="live-result-audio" id="live-result-audio-wrapper"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Workspace Tabs Navigation -->
+    <section class="workspace-tabs">
+      <div class="tabs-header">
+        <button class="tab-btn active" data-tab="tab-history">
+          <span class="tab-icon">📜</span>
+          <span>Histórico Interativo</span>
+          <span class="tab-counter" id="tab-history-count">0</span>
+        </button>
+        <button class="tab-btn" data-tab="tab-settings">
+          <span class="tab-icon">⚙️</span>
+          <span>Ajustes & Preferências</span>
+        </button>
+        <button class="tab-btn" data-tab="tab-about">
+          <span class="tab-icon">💡</span>
+          <span>Permissões & Atalhos</span>
+        </button>
+      </div>
+
+      <!-- Tab 1: History -->
+      <div class="tab-content active" id="tab-history">
+        <div class="history-toolbar">
+          <div class="search-box">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" id="history-search-input" placeholder="Buscar por palavra no histórico...">
+          </div>
+
+          <div class="filter-pills">
+            <button class="filter-pill active" data-filter="all">Todos</button>
+            <button class="filter-pill" data-filter="success">Sucesso</button>
+            <button class="filter-pill" data-filter="error">Falhas / Erros</button>
+            <button class="filter-pill" data-filter="empty">Vazios</button>
+          </div>
+        </div>
+
+        <div class="history-list" id="history-list-container">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Carregando histórico do banco SQLite...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Settings -->
+      <div class="tab-content" id="tab-settings">
+        <div class="settings-form">
+          <div class="settings-section">
+            <h3 class="settings-section-title">Comportamento de Ditado & Inserção</h3>
+            
+            <div class="setting-item">
+              <div class="setting-text">
+                <label class="setting-label">Correção Gramatical Automática</label>
+                <p class="setting-hint">Ajusta pontuação correta e concordância verbal no texto gerado.</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="setting-grammar" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-text">
+                <label class="setting-label">Adicionar no Cursor (Modo Append)</label>
+                <p class="setting-hint">Ao soltar e falar novamente, adiciona o novo texto na posição do cursor sem apagar o anterior.</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="setting-append" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-text">
+                <label class="setting-label">Modo Toggle (Dois Toques)</label>
+                <p class="setting-hint">Permite gravar com um toque duplo na tecla e parar com outro, sem precisar segurar continuamente.</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="setting-toggle">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-text">
+                <label class="setting-label">Iniciar com o macOS (LaunchAgent)</label>
+                <p class="setting-hint">Inicia automaticamente em segundo plano no login do sistema.</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="setting-autostart" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3 class="settings-section-title">Teclado & Modelos</h3>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="setting-hotkey">Atalho Global de Gravação</label>
+                <select id="setting-hotkey" class="form-select">
+                  <option value="Alt">⌥ Option / Alt (Recomendado)</option>
+                  <option value="Control">⌃ Control</option>
+                  <option value="Command">⌘ Command</option>
+                  <option value="Shift">⇧ Shift</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="setting-language">Idioma de Transcrição</label>
+                <select id="setting-language" class="form-select">
+                  <option value="pt">Português Brasileiro (pt-BR)</option>
+                  <option value="en">Inglês (en-US)</option>
+                  <option value="es">Espanhol (es)</option>
+                  <option value="fr">Francês (fr)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="setting-stt-model">Modelo Whisper STT (Groq)</label>
+                <input type="text" id="setting-stt-model" class="form-input" value="whisper-large-v3-turbo" readonly>
+              </div>
+              <div class="form-group">
+                <label for="setting-llm-model">Modelo LLM de Ajuste de Tom (Groq)</label>
+                <input type="text" id="setting-llm-model" class="form-input" value="qwen/qwen3.8-27b" readonly>
+              </div>
+            </div>
+
+            <div class="settings-footer">
+              <button class="btn btn-primary" id="btn-save-settings">Salvar Preferências</button>
+              <button class="btn btn-outline" id="btn-reset-settings">Restaurar Padrões</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: About & Permissions -->
+      <div class="tab-content" id="tab-about">
+        <div class="about-container">
+          <div class="about-card">
+            <h3>Como Funciona o Ditado no macOS</h3>
+            <p>O <strong>Voice Transcription</strong> roda como daemon silencioso no menu bar. Você não precisa manter esta janela aberta para utilizá-lo:</p>
+            <ol class="guide-steps">
+              <li><strong>Clique</strong> no campo de texto onde quer escrever (WhatsApp, VS Code, Google Docs, Terminal, etc.).</li>
+              <li><strong>Pressione e segure</strong> a tecla <kbd>⌥ Option</kbd> (Alt). O microfone começará a capturar.</li>
+              <li><strong>Fale normalmente</strong>, inclusive fazendo pausas naturais de respiração — o áudio não será cortado.</li>
+              <li><strong>Solte a tecla</strong>. O áudio é enviado para transcrição na nuvem ultra-rápida Groq, tem o tom ajustado e é colado na posição exata do seu cursor.</li>
+              <li>Pressione <kbd>Esc</kbd> caso queira cancelar uma gravação sem colar nada.</li>
+            </ol>
+          </div>
+
+          <div class="about-card">
+            <h3>Permissões de Sistema Necessárias</h3>
+            <p>Para o macOS permitir que o aplicativo interaja sobre outros programas, conceda as permissões em <strong>Ajustes do Sistema > Privacidade e Segurança</strong>:</p>
+            <div class="permissions-list">
+              <div class="permission-item">
+                <span class="p-icon">🎙️</span>
+                <div>
+                  <strong>Microfone:</strong> Permite capturar sua voz quando a tecla for acionada.
+                </div>
+              </div>
+              <div class="permission-item">
+                <span class="p-icon">♿</span>
+                <div>
+                  <strong>Acessibilidade:</strong> Permite detectar se há um campo de texto ativo e colar o resultado no cursor.
+                </div>
+              </div>
+              <div class="permission-item">
+                <span class="p-icon">⌨️</span>
+                <div>
+                  <strong>Monitoramento de Entrada:</strong> Permite escutar a tecla de atalho mesmo estando em outro app.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="js/app.js"></script>
+</body>
+</html>
