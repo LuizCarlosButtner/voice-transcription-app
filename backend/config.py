@@ -40,6 +40,11 @@ class Settings(BaseModel):
     append_at_cursor: bool = Field(default=True, description="Inserir no cursor atual sem apagar seleção a menos que selecionado")
     insertion_method: str = Field(default="clipboard_paste", description="clipboard_paste ou keystroke")
     
+    # Backup por Chunks e Proteção Anti-Perda
+    chunk_backup_enabled: bool = Field(default=True, description="Se ativo, grava chunks em disco continuamente para evitar perda de fala")
+    chunk_start_seconds: int = Field(default=40, description="Tempo inicial de fala em segundos antes de iniciar o corte em chunks (default 40s, digitável)")
+    chunk_seconds: int = Field(default=30, description="Duração de cada fatia/chunk de backup em segundos")
+    
     # Sistema e Rede
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=8100)

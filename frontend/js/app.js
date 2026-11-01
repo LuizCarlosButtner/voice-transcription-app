@@ -67,6 +67,8 @@ const settingToggle = document.getElementById("setting-toggle");
 const settingAutostart = document.getElementById("setting-autostart");
 const settingHotkey = document.getElementById("setting-hotkey");
 const settingLanguage = document.getElementById("setting-language");
+const settingChunkBackup = document.getElementById("setting-chunk-backup");
+const settingChunkStart = document.getElementById("setting-chunk-start");
 const btnSaveSettings = document.getElementById("btn-save-settings");
 const btnResetSettings = document.getElementById("btn-reset-settings");
 
@@ -272,7 +274,9 @@ async function saveSettings() {
     append_at_cursor: settingAppend.checked,
     toggle_mode: settingToggle.checked,
     hotkey: settingHotkey.value,
-    language: settingLanguage.value
+    language: settingLanguage.value,
+    chunk_backup_enabled: settingChunkBackup ? settingChunkBackup.checked : true,
+    chunk_start_seconds: settingChunkStart ? parseInt(settingChunkStart.value, 10) || 40 : 40
   };
 
   try {
@@ -388,6 +392,8 @@ function updateUIStatus(data) {
   settingToggle.checked = !!data.toggle_mode;
   settingHotkey.value = data.hotkey || "Alt";
   settingLanguage.value = data.language || "pt";
+  if (settingChunkBackup) settingChunkBackup.checked = data.chunk_backup_enabled !== false;
+  if (settingChunkStart) settingChunkStart.value = data.chunk_start_seconds || 40;
 
   // Sync translation toggle
   syncTranslationUI(!!data.translate_to_english);
@@ -700,14 +706,19 @@ function showToast(message, type = "info") {
 
 function getStatusBadge(status) {
   switch (status) {
+    case "sent":
     case "success":
-      return '<span class="badge badge-success">✓ Sucesso</span>';
+      return '<span class="badge badge-success">✓ Enviado</span>';
+    case "written_not_sent":
+      return '<span class="badge badge-warning">📝 Não Enviado</span>';
+    case "partial":
+      return '<span class="badge" style="background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.4);">🔄 Recuperado (Crash)</span>';
+    case "cancelled":
+      return '<span class="badge" style="background: rgba(156,163,175,0.2); color: #9ca3af; border: 1px solid rgba(156,163,175,0.3);">🛑 Cancelado</span>';
     case "error":
       return '<span class="badge badge-error">✕ Erro</span>';
     case "empty":
       return '<span class="badge badge-warning">∅ Vazio</span>';
-    case "cancelled":
-      return '<span class="badge" style="background: rgba(156,163,175,0.2); color: #9ca3af;">⊘ Cancelado</span>';
     default:
       return `<span class="badge">${status}</span>`;
   }

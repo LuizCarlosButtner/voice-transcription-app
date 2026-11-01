@@ -6,6 +6,7 @@ import rumps
 
 from config import get_settings, update_settings, BASE_APP_DIR
 from autostart import is_autostart_installed, install_autostart, uninstall_autostart
+from history import history_manager
 
 STATUS_ICONS = {
     "idle": "🎙️ 🟢",
@@ -56,6 +57,11 @@ class VoiceTranscriptionTrayApp(rumps.App):
         self.translate_item = rumps.MenuItem("🌐 Traduzir para Inglês (PT ➔ EN)", callback=self.on_toggle_translate)
         self.translate_item.state = 1 if settings.translate_to_english else 0
         self.menu.add(self.translate_item)
+
+        # 4. Menu de Recuperação de Áudios Não Enviados (Ordem do Luiz)
+        self.recovery_menu = rumps.MenuItem("🔄 Recuperação (Não Enviados)")
+        self.menu.add(self.recovery_menu)
+        self._refresh_recovery_menu()
         self.menu.add(rumps.separator)
 
         # 4. Opções e Ajustes rápidos
@@ -81,6 +87,18 @@ class VoiceTranscriptionTrayApp(rumps.App):
         self.autostart_item = rumps.MenuItem("Iniciar Automaticamente no Login", callback=self.on_toggle_autostart)
         self.autostart_item.state = 1 if is_autostart_installed() else 0
         self.settings_menu.add(self.autostart_item)
+
+        # Backup Anti-Perda em Chunks
+        self.chunk_backup_item = rumps.MenuItem("Backup Contínuo por Chunks", callback=self.on_toggle_chunk_backup)
+        self.chunk_backup_item.state = 1 if settings.chunk_backup_enabled else 0
+        self.settings_menu.add(self.chunk_backup_item)
+
+        # Limiar de Chunks Digitável (Campo Livre, default 40s)
+        self.chunk_threshold_item = rumps.MenuItem(
+            f"Iniciar Chunks aos: {settings.chunk_start_seconds}s (Alterar...)",
+            callback=self.on_change_chunk_threshold
+        )
+        self.settings_menu.add(self.chunk_threshold_item)
 
         self.menu.add(self.settings_menu)
         self.menu.add(rumps.separator)
@@ -109,6 +127,81 @@ class VoiceTranscriptionTrayApp(rumps.App):
         update_settings({"translate_to_english": new_state})
         status_msg = "Ativada (Fala em PT ➔ Digita em EN)" if new_state else "Desativada (Digita em PT)"
         rumps.notification("Voice Transcription", "Tradução PT ➔ EN", status_msg)
+
+    def _refresh_recovery_menu(self):
+        """Atualiza dinamicamente os itens pendentes dentro do submenu de recuperação."""
+        try:
+            # Em rumps, remove itens limpando as chaves internas se o menu Cocoa já existir
+            if hasattr(self.recovery_menu, "_menu") and self.recovery_menu._menu is not None:
+                self.recovery_menu.clear()
+            else:
+                for k in list(self.recovery_menu.keys()):
+                    del self.recovery_menu[k]
+
+            recoverable = history_manager.list_recoverable(limit=8)
+            if not recoverable:
+                empty_item = rumps.MenuItem("Nenhum áudio pendente (Tudo enviado)")
+                self.recovery_menu.add(empty_item)
+                return
+
+            for item in recoverable:
+                entry_id = item["id"]
+                raw_preview = item.get("text_final") or item.get("text_raw") or "Áudio não transcrito"
+                short_text = (raw_preview[:32] + "...") if len(raw_preview) > 32 else raw_preview
+                status_icon = "🛑" if item["status"] == "cancelled" else ("⚠️" if item["status"] == "error" else "📝")
+                label = f"{status_icon} {short_text}"
+
+                menu_item = rumps.MenuItem(label, callback=self._make_recovery_callback(entry_id))
+                self.recovery_menu.add(menu_item)
+
+            self.recovery_menu.add(rumps.separator)
+            self.recovery_menu.add(rumps.MenuItem("Atualizar Lista de Pendências", callback=lambda s: self._refresh_recovery_menu()))
+        except Exception as e:
+            print(f"[RECOVERY MENU] Falha ao atualizar: {e}")
+
+    def _make_recovery_callback(self, entry_id: str):
+        def callback(sender):
+            if self.daemon_ref:
+                import asyncio
+                import threading
+                threading.Thread(
+                    target=lambda: asyncio.run(self.daemon_ref.recover_and_insert(entry_id)),
+                    daemon=True
+                ).start()
+                self._refresh_recovery_menu()
+        return callback
+
+    def on_toggle_chunk_backup(self, sender):
+        new_state = not bool(sender.state)
+        sender.state = 1 if new_state else 0
+        update_settings({"chunk_backup_enabled": new_state})
+        status_msg = "Ativado" if new_state else "Desativado"
+        rumps.notification("Voice Transcription", "Backup de Chunks", f"Backup contínuo {status_msg}")
+
+    def on_change_chunk_threshold(self, sender):
+        """Abre janela de entrada livre para o usuário digitar o valor em segundos (sem presets fixos)."""
+        settings = get_settings()
+        window = rumps.Window(
+            message=f"Digite o tempo inicial de fala (em segundos) antes de começar o fatiamento em chunks de 30s:\n\nAtual: {settings.chunk_start_seconds} segundos (Padrão: 40s)",
+            title="Limiar de Início dos Chunks",
+            default_text=str(settings.chunk_start_seconds),
+            ok="Salvar",
+            cancel="Cancelar",
+            dimensions=(280, 24)
+        )
+        response = window.run()
+        if response.clicked:
+            text_val = response.text.strip()
+            try:
+                val = int(text_val)
+                if val >= 5:
+                    update_settings({"chunk_start_seconds": val})
+                    sender.title = f"Iniciar Chunks aos: {val}s (Alterar...)"
+                    rumps.notification("Voice Transcription", "Limiar Atualizado", f"Chunks iniciarão após {val} segundos de fala.")
+                else:
+                    rumps.alert("Valor Inválido", "O tempo mínimo deve ser de pelo menos 5 segundos.")
+            except ValueError:
+                rumps.alert("Valor Inválido", "Por favor digite um número inteiro válido em segundos.")
 
     def on_record_clicked(self, sender):
         """Permite acionar a gravação diretamente por clique no menu sem precisar de teclado."""

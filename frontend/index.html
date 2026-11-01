@@ -222,9 +222,11 @@
 
           <div class="filter-pills">
             <button class="filter-pill active" data-filter="all">Todos</button>
-            <button class="filter-pill" data-filter="success">Sucesso</button>
+            <button class="filter-pill" data-filter="sent">Enviados</button>
+            <button class="filter-pill" data-filter="written_not_sent">Não Enviados</button>
+            <button class="filter-pill" data-filter="cancelled">Cancelados</button>
+            <button class="filter-pill" data-filter="partial">Recuperados (Crash)</button>
             <button class="filter-pill" data-filter="error">Falhas / Erros</button>
-            <button class="filter-pill" data-filter="empty">Vazios</button>
           </div>
         </div>
 
@@ -284,6 +286,29 @@
                 <input type="checkbox" id="setting-autostart" checked>
                 <span class="slider"></span>
               </label>
+            </div>
+
+            <!-- Proteção Anti-Perda e Chunks -->
+            <div class="setting-item">
+              <div class="setting-text">
+                <label class="setting-label">Backup Contínuo por Chunks (Proteção Anti-Perda)</label>
+                <p class="setting-hint">Grava pedaços de áudio em tempo real para o disco em formato leve (OGG). Se a máquina reiniciar ou travar, seu áudio fica salvo.</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="setting-chunk-backup" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-text">
+                <label class="setting-label">Iniciar Fatiamento Após (Segundos)</label>
+                <p class="setting-hint">Digite livremente o tempo de fala contínua antes de iniciar a divisão em chunks de 30s (Padrão: 40 segundos).</p>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="number" id="setting-chunk-start" class="form-select" min="5" max="300" step="5" value="40" style="width: 90px; text-align: center; font-weight: 700;">
+                <span style="font-size: 0.85rem; color: var(--text-secondary);">segundos</span>
+              </div>
             </div>
           </div>
 

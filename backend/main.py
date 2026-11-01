@@ -43,6 +43,10 @@ daemon = VoiceDaemon()
 @app.on_event("startup")
 def on_startup():
     try:
+        # Resgata sessões órfãs interrompidas por crash/reboot
+        recovered = history_manager.recover_orphaned_chunks()
+        if recovered > 0:
+            print(f"[STARTUP RECOVERY] {recovered} sessão(ões) órfã(s) recuperada(s) com sucesso!")
         daemon.start_listening()
     except Exception as e:
         print(f"[AVISO] Não foi possível iniciar listener de atalhos globais: {e}")
@@ -75,6 +79,9 @@ class SettingsUpdate(BaseModel):
     append_at_cursor: Optional[bool] = None
     translate_to_english: Optional[bool] = None
     translate_auto_apps: Optional[List[str]] = None
+    chunk_backup_enabled: Optional[bool] = None
+    chunk_start_seconds: Optional[int] = None
+    chunk_seconds: Optional[int] = None
 
 # --- Endpoints ---
 
@@ -102,6 +109,9 @@ def get_status():
         "append_at_cursor": settings.append_at_cursor,
         "translate_to_english": settings.translate_to_english,
         "translate_auto_apps": settings.translate_auto_apps,
+        "chunk_backup_enabled": settings.chunk_backup_enabled,
+        "chunk_start_seconds": settings.chunk_start_seconds,
+        "chunk_seconds": settings.chunk_seconds,
         "permissions": {
             "accessibility_trusted": is_accessibility_trusted(),
             "microphone_status": get_macos_microphone_status()

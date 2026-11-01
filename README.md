@@ -20,7 +20,14 @@ Aplicativo desktop autônomo para macOS que transforma voz em texto em qualquer 
 - **Tradução Instantânea para Inglês (PT ➔ EN):**
   - Fale naturalmente em português brasileiro; o aplicativo transcreve sua voz e insere **diretamente em inglês** no campo de texto ativo (ideal para CLIs como Gemini CLI, Claude Code, chats internacionais ou prompts em inglês).
   - Pode ser ativado ou desativado na hora com um clique no botão azul do painel web ou pelo item `🌐 Traduzir para Inglês` na barra de menus do macOS.
-- **Histórico Completo com Áudio de Recuperação:** Todas as sessões (sucessos e falhas) são persistidas em SQLite local (`~/.voice-transcription/history.db`). Em caso de falha de conexão ou erro no provedor, o áudio bruto (`.wav`) permanece salvo para retranscrição imediata (*retry*).
+- **Backup Anti-Perda Contínuo por Chunks (Formato OGG Leve):**
+  - Para áudios longos, o aplicativo inicia automaticamente a gravação de chunks de 30s em tempo real após um limiar configurável (padrão de 40 segundos, digitável livremente).
+  - Se a máquina reiniciar, travar ou sofrer queda abrupta, o áudio já fatiado em disco é resgatado automaticamente como sessão recuperada no próximo boot.
+  - Áudio salvo em formato enxuto OGG Vorbis (~300 KB/min), ocupando fração mínima de disco comparado ao WAV.
+- **Menu de Recuperação Direta:**
+  - Áudios não enviados, cancelados ou recuperados de falhas aparecem diretamente no submenu `🔄 Recuperação (Não Enviados)` da barra de menus.
+  - Clicando no item, o aplicativo transcreve (se necessário) e insere o texto **exatamente onde o cursor estiver posicionado**, sem nunca apagar ou sobrescrever o texto existente.
+- **Histórico Completo com Áudio de Recuperação:** Todas as sessões (sucessos, cancelados, erros e não-enviados) são persistidas em SQLite local (`~/.voice-transcription/history.db`).
 - **Provedor Primário e Fallback Offline:** Groq Cloud (`whisper-large-v3-turbo`) com fallback automático para SenseVoice-ONNX local.
 - **Ícone de Status no Menu Bar:** Indicador visual em tempo real (🟢 Ocioso, 🔴 Gravando, 🟡 Processando, ⚠️ Atenção/Erro).
 - **Inicialização Automática:** Suporte a inicialização com o sistema via LaunchAgent do macOS.

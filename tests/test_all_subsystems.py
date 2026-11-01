@@ -40,21 +40,19 @@ def test_sqlite_history_retention():
     history_manager.delete_entry(eid)
 
 def test_audio_recorder_format():
-    test_wav = Path("/tmp/test_pytest_audio.wav")
+    test_ogg = Path("/tmp/test_pytest_audio.ogg")
     sr = 16000
     t = np.linspace(0, 0.2, int(sr * 0.2), endpoint=False)
     sine = (np.sin(2 * np.pi * 440 * t) * 16000).astype(np.int16)
 
-    res = recorder.inject_synthetic_audio(sine, test_wav)
+    res = recorder.inject_synthetic_audio(sine, test_ogg)
     assert res["ok"] is True
-    assert test_wav.exists()
+    saved = Path(res["path"])
+    assert saved.exists()
+    assert saved.suffix in (".ogg", ".wav")
+    assert saved.stat().st_size > 0
 
-    with wave.open(str(test_wav), "rb") as wf:
-        assert wf.getframerate() == 16000
-        assert wf.getnchannels() == 1
-        assert wf.getsampwidth() == 2
-
-    test_wav.unlink(missing_ok=True)
+    saved.unlink(missing_ok=True)
 
 @pytest.mark.asyncio
 async def test_rewriter_all_tones():

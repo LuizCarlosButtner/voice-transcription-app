@@ -100,10 +100,10 @@ class VoiceDaemon:
         self._active_app_info = get_frontmost_app()
         self._focused_role = role
 
-        # Gera ID de sessão e arquivo WAV
+        # Gera ID de sessão e arquivo de áudio leve (.ogg)
         entry_id = str(uuid.uuid4())
         self._current_entry_id = entry_id
-        audio_path = AUDIO_STORAGE_DIR / f"{entry_id}.wav"
+        audio_path = AUDIO_STORAGE_DIR / f"{entry_id}.ogg"
         self._current_audio_path = audio_path
 
         # 2. Registra imediatamente no SQLite para garantir persistência do áudio
@@ -118,8 +118,8 @@ class VoiceDaemon:
             tone=settings.tone
         )
 
-        # 3. Inicia gravação de áudio
-        ok, msg = recorder.start()
+        # 3. Inicia gravação de áudio passando o session_id para controle de chunks
+        ok, msg = recorder.start(session_id=entry_id)
         if not ok:
             self._is_recording = False
             self._is_toggle_active = False
@@ -202,18 +202,34 @@ class VoiceDaemon:
             # 3. Inserção contínua no cursor (Append)
             inserted = inserter.insert_text(text_final)
 
-            # 4. Atualização de sucesso no histórico SQLite
-            history_manager.mark_success(
-                entry_id=entry_id,
-                duration_ms=duration_ms,
-                text_raw=text_raw,
-                text_final=text_final,
-                tone=settings.tone,
-                grammar_fixed=grammar_applied,
-                provider=provider_used
-            )
-
-            self._set_status("idle", "Concluído com sucesso")
+            # 4. Atualização de status no histórico SQLite:
+            # Se inseriu com sucesso -> 'sent'
+            # Se a transcrição funcionou mas a colagem falhou (ex: sem foco/bloqueado) -> 'written_not_sent'
+            if inserted:
+                history_manager.mark_sent(
+                    entry_id=entry_id,
+                    duration_ms=duration_ms,
+                    text_raw=text_raw,
+                    text_final=text_final,
+                    tone=settings.tone,
+                    grammar_fixed=grammar_applied,
+                    provider=provider_used,
+                    audio_path=str(audio_path)
+                )
+                self._set_status("idle", "Concluído e enviado")
+            else:
+                history_manager.mark_written_not_sent(
+                    entry_id=entry_id,
+                    duration_ms=duration_ms,
+                    text_raw=text_raw,
+                    text_final=text_final,
+                    tone=settings.tone,
+                    grammar_fixed=grammar_applied,
+                    provider=provider_used,
+                    audio_path=str(audio_path),
+                    reason="Texto transcrito com sucesso, mas a inserção automática no cursor falhou (salvo para recuperação)"
+                )
+                self._set_status("idle", "Transcrito (salvo na recuperação)")
 
         except Exception as e:
             history_manager.mark_error(entry_id, duration_ms, f"Erro inesperado no pipeline: {e}")
@@ -224,13 +240,89 @@ class VoiceDaemon:
             if self._is_recording or recorder.is_recording:
                 self._is_recording = False
                 self._is_toggle_active = False
-                recorder.cancel()
+                
+                # Ao cancelar, o recorder salva o que foi falado em OGG e devolve os metadados
+                dest_path = self._current_audio_path or (AUDIO_STORAGE_DIR / f"{self._current_entry_id or 'cancelled'}.ogg")
+                res = recorder.cancel(destination_path=dest_path)
+                
+                saved_audio = res.get("path") if res.get("ok") else None
+                duration_ms = res.get("duration_ms", 0)
+
                 if self._current_entry_id:
-                    history_manager.mark_cancelled(self._current_entry_id)
-                self._set_status("idle", "Gravação cancelada")
+                    history_manager.mark_cancelled(
+                        self._current_entry_id,
+                        duration_ms=duration_ms,
+                        audio_path=str(saved_audio) if saved_audio else str(dest_path)
+                    )
+                self._set_status("idle", "Gravação cancelada (áudio preservado)")
+
+    async def recover_and_insert(self, entry_id: str) -> bool:
+        """
+        Recupera uma gravação do menu de pendências e cola no cursor do app ativo.
+        REGRA RÍGIDA DO LUIZ:
+        - NUNCA apaga ou substitui o texto já existente no input.
+        - Sempre cola onde o cursor estiver posicionado (por padrão no final para continuar a frase).
+        - Se já possuir text_final, usa direto. Se for erro/cancelado/partial, retranscreve antes.
+        """
+        entry = history_manager.get_entry(entry_id)
+        if not entry:
+            return False
+
+        text_to_insert = entry.get("text_final") or entry.get("text_raw")
+        
+        # Se não tiver texto transcrito ainda (ex: partial de crash ou cancelado sem transcrição prévia), retranscreve
+        if not text_to_insert:
+            audio_path = Path(entry.get("audio_path") or "")
+            if not audio_path.exists() or audio_path.stat().st_size == 0:
+                self._set_status("error", "Arquivo de áudio não encontrado para recuperação")
+                return False
+
+            self._set_status("processing", "Transcrevendo áudio recuperado...")
+            settings = get_settings()
+            stt_res = await transcriber.transcribe(audio_path, language=entry.get("language") or settings.language)
+            if not stt_res.get("ok") or not stt_res.get("text"):
+                self._set_status("error", "Falha ao transcrever áudio recuperado")
+                return False
+
+            raw = stt_res["text"].strip()
+            rw_res = await rewriter.rewrite(
+                raw_text=raw,
+                tone=entry.get("tone") or settings.tone,
+                grammar_correction=settings.grammar_correction,
+                translate_to_english=settings.translate_to_english
+            )
+            text_to_insert = rw_res.get("text", raw).strip()
+
+        if not text_to_insert:
+            return False
+
+        # Inserção estritamente no cursor (Append contínuo, preservando o texto anterior)
+        success = inserter.insert_text(text_to_insert)
+        if success:
+            history_manager.mark_sent(
+                entry_id=entry_id,
+                duration_ms=entry.get("duration_ms") or 0,
+                text_raw=entry.get("text_raw") or text_to_insert,
+                text_final=text_to_insert,
+                tone=entry.get("tone") or "verbatim",
+                audio_path=entry.get("audio_path")
+            )
+            self._set_status("idle", "Áudio recuperado e colado no cursor")
+            return True
+        else:
+            self._set_status("error", "Não foi possível colar no cursor (verifique foco)")
+            return False
 
     def start_listening(self, loop: Optional[asyncio.AbstractEventLoop] = None):
-        """Inicia o escutador de teclado global pynput em background."""
+        """Inicia o escutador de teclado global pynput em background e resgata sessões órfãs."""
+        # Executa recuperação idempotente de crashes anteriores
+        try:
+            recovered = history_manager.recover_orphaned_chunks()
+            if recovered > 0:
+                print(f"[RECOVERY] {recovered} gravação(ões) de sessões anteriores recuperada(s) com sucesso!")
+        except Exception as e:
+            print(f"[RECOVERY] Verificação de recuperação: {e}")
+
         self._loop = loop
         self._listener = keyboard.Listener(
             on_press=self.on_press,
