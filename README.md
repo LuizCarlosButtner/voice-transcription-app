@@ -17,6 +17,9 @@ Aplicativo desktop autônomo para macOS que transforma voz em texto em qualquer 
   - `Coloquial`: Ajusta vocabulário para estilo descontraído mantendo as ideias do usuário.
   - `Semiformal`: Tom equilibrado para comunicação profissional diária.
   - `Formal`: Tom refinado e polido para documentos e correspondências oficiais.
+- **Tradução Instantânea para Inglês (PT ➔ EN):**
+  - Fale naturalmente em português brasileiro; o aplicativo transcreve sua voz e insere **diretamente em inglês** no campo de texto ativo (ideal para CLIs como Gemini CLI, Claude Code, chats internacionais ou prompts em inglês).
+  - Pode ser ativado ou desativado na hora com um clique no botão azul do painel web ou pelo item `🌐 Traduzir para Inglês` na barra de menus do macOS.
 - **Histórico Completo com Áudio de Recuperação:** Todas as sessões (sucessos e falhas) são persistidas em SQLite local (`~/.voice-transcription/history.db`). Em caso de falha de conexão ou erro no provedor, o áudio bruto (`.wav`) permanece salvo para retranscrição imediata (*retry*).
 - **Provedor Primário e Fallback Offline:** Groq Cloud (`whisper-large-v3-turbo`) com fallback automático para SenseVoice-ONNX local.
 - **Ícone de Status no Menu Bar:** Indicador visual em tempo real (🟢 Ocioso, 🔴 Gravando, 🟡 Processando, ⚠️ Atenção/Erro).

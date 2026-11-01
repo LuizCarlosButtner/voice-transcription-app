@@ -72,6 +72,11 @@ const btnResetSettings = document.getElementById("btn-reset-settings");
 
 const toastContainer = document.getElementById("toast-container");
 
+// Translation Feature Elements
+const toggleTranslateEn = document.getElementById("toggle-translate-en");
+const translateStatusText = document.getElementById("translate-status-text");
+const translationFeatureBar = document.getElementById("translation-feature-bar");
+
 // ==========================================
 // Initialization
 // ==========================================
@@ -114,6 +119,14 @@ function setupEventListeners() {
     const selectedTone = card.dataset.tone;
     updateTone(selectedTone);
   });
+
+  // Translation Toggle
+  if (toggleTranslateEn) {
+    toggleTranslateEn.addEventListener("change", async (e) => {
+      const isEnabled = e.target.checked;
+      await updateTranslationSetting(isEnabled);
+    });
+  }
 
   // Recording button
   btnHeroMic.addEventListener("click", toggleBrowserRecording);
@@ -213,6 +226,43 @@ async function updateTone(toneKey) {
     showToast(`Tom atualizado para: ${capitalize(updated.tone)}`, "success");
   } catch (err) {
     showToast(`Falha ao alterar tom: ${err.message}`, "error");
+  }
+}
+
+async function updateTranslationSetting(enabled) {
+  try {
+    const res = await fetch(`${API_BASE}/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ translate_to_english: enabled })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const updated = await res.json();
+    appState.settings.translate_to_english = updated.translate_to_english;
+    syncTranslationUI(updated.translate_to_english);
+    const msg = updated.translate_to_english
+      ? "Tradução PT ➔ EN ATIVADA (você fala em português e digita em inglês)"
+      : "Tradução desativada (transcreve e digita em português)";
+    showToast(msg, "info");
+  } catch (err) {
+    showToast(`Erro ao alterar tradução: ${err.message}`, "error");
+  }
+}
+
+function syncTranslationUI(enabled) {
+  if (toggleTranslateEn) {
+    toggleTranslateEn.checked = !!enabled;
+  }
+  if (translateStatusText) {
+    translateStatusText.innerText = enabled ? "ATIVADO (PT ➔ EN)" : "Desativado";
+    translateStatusText.className = "switch-status-text" + (enabled ? " active" : "");
+  }
+  if (translationFeatureBar) {
+    if (enabled) {
+      translationFeatureBar.classList.add("active");
+    } else {
+      translationFeatureBar.classList.remove("active");
+    }
   }
 }
 
@@ -338,6 +388,9 @@ function updateUIStatus(data) {
   settingToggle.checked = !!data.toggle_mode;
   settingHotkey.value = data.hotkey || "Alt";
   settingLanguage.value = data.language || "pt";
+
+  // Sync translation toggle
+  syncTranslationUI(!!data.translate_to_english);
 }
 
 function highlightToneCard(toneKey) {

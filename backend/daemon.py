@@ -180,11 +180,21 @@ class VoiceDaemon:
             text_raw = stt_res["text"].strip()
             provider_used = stt_res.get("provider", settings.provider)
 
-            # 2. Ajuste de Tom e Gramática
+            # 2. Verifica se tradução para inglês deve ser acionada (global ou automática por aplicativo)
+            should_translate = settings.translate_to_english
+            active_app_name = (self._active_app_info.get("name") or "").lower()
+            if not should_translate and settings.translate_auto_apps:
+                for auto_app in settings.translate_auto_apps:
+                    if auto_app.lower() in active_app_name:
+                        should_translate = True
+                        break
+
+            # 3. Ajuste de Tom, Gramática e Tradução
             rw_res = await rewriter.rewrite(
                 raw_text=text_raw,
                 tone=settings.tone,
-                grammar_correction=settings.grammar_correction
+                grammar_correction=settings.grammar_correction,
+                translate_to_english=should_translate
             )
             text_final = rw_res.get("text", text_raw).strip()
             grammar_applied = rw_res.get("grammar_fixed", False)

@@ -73,6 +73,8 @@ class SettingsUpdate(BaseModel):
     grammar_correction: Optional[bool] = None
     toggle_mode: Optional[bool] = None
     append_at_cursor: Optional[bool] = None
+    translate_to_english: Optional[bool] = None
+    translate_auto_apps: Optional[List[str]] = None
 
 # --- Endpoints ---
 
@@ -98,6 +100,8 @@ def get_status():
         "hotkey": settings.hotkey,
         "toggle_mode": settings.toggle_mode,
         "append_at_cursor": settings.append_at_cursor,
+        "translate_to_english": settings.translate_to_english,
+        "translate_auto_apps": settings.translate_auto_apps,
         "permissions": {
             "accessibility_trusted": is_accessibility_trusted(),
             "microphone_status": get_macos_microphone_status()

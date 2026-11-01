@@ -51,6 +51,13 @@ class VoiceTranscriptionTrayApp(rumps.App):
 
         self.menu.add(self.tone_menu)
 
+        # Tradutor Instantâneo PT -> EN (Toggle Rápido em Destaque)
+        settings = get_settings()
+        self.translate_item = rumps.MenuItem("🌐 Traduzir para Inglês (PT ➔ EN)", callback=self.on_toggle_translate)
+        self.translate_item.state = 1 if settings.translate_to_english else 0
+        self.menu.add(self.translate_item)
+        self.menu.add(rumps.separator)
+
         # 4. Opções e Ajustes rápidos
         self.settings_menu = rumps.MenuItem("Preferências")
         
@@ -95,6 +102,13 @@ class VoiceTranscriptionTrayApp(rumps.App):
             label = dict(TONES).get(tone_key, tone_key)
             rumps.notification("Voice Transcription", "Tom de Voz Atualizado", f"Modo ativo: {label}")
         return callback
+
+    def on_toggle_translate(self, sender):
+        new_state = not bool(sender.state)
+        sender.state = 1 if new_state else 0
+        update_settings({"translate_to_english": new_state})
+        status_msg = "Ativada (Fala em PT ➔ Digita em EN)" if new_state else "Desativada (Digita em PT)"
+        rumps.notification("Voice Transcription", "Tradução PT ➔ EN", status_msg)
 
     def on_record_clicked(self, sender):
         """Permite acionar a gravação diretamente por clique no menu sem precisar de teclado."""

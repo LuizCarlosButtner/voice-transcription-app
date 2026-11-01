@@ -32,6 +32,10 @@ class Settings(BaseModel):
     available_tones: list[str] = Field(default=["verbatim", "colloquial", "semiformal", "formal"])
     grammar_correction: bool = Field(default=True, description="Correção automática de gramática e pontuação")
     
+    # Tradução instantânea PT -> EN
+    translate_to_english: bool = Field(default=False, description="Se ativo, traduz a fala em português diretamente para inglês no input")
+    translate_auto_apps: list[str] = Field(default=[], description="Lista de apps que ativam tradução para inglês automaticamente (ex: 'Terminal', 'iTerm2')")
+    
     # Inserção de texto
     append_at_cursor: bool = Field(default=True, description="Inserir no cursor atual sem apagar seleção a menos que selecionado")
     insertion_method: str = Field(default="clipboard_paste", description="clipboard_paste ou keystroke")
