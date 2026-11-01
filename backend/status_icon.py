@@ -1,5 +1,7 @@
 import os
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Optional
 import rumps
@@ -10,8 +12,8 @@ from history import history_manager
 
 STATUS_ICONS = {
     "idle": "🟢",
-    "listening": "🔴 Gravando...",
-    "processing": "🟡 Transcrevendo...",
+    "listening": "REC 🔴",
+    "processing": "REC 🟡",
     "no_focus": "⚠️ Sem Foco",
     "error": "⚠️ Erro"
 }
@@ -28,6 +30,12 @@ class VoiceTranscriptionTrayApp(rumps.App):
         super().__init__("VoiceTranscription", title=STATUS_ICONS["idle"], quit_button=None)
         self.daemon_ref = daemon_ref
         self._current_status = "idle"
+        self._anim_thread = None
+        self._anim_stop_event = threading.Event()
+
+        # Inicia thread de animação em background
+        self._anim_thread = threading.Thread(target=self._animation_loop, daemon=True)
+        self._anim_thread.start()
 
         # 1. Item informativo de status
         self.status_item = rumps.MenuItem("Status: Pronto (Ocioso)")
@@ -285,9 +293,30 @@ class VoiceTranscriptionTrayApp(rumps.App):
             subprocess.run(["open", str(readme_path)])
 
     def on_quit_clicked(self, sender):
+        self._anim_stop_event.set()
         if self.daemon_ref:
             self.daemon_ref.stop_listening()
         rumps.quit_application()
+
+    def _animation_loop(self):
+        """Loop executado em background para animar a barra de menus do macOS."""
+        dot_state = True
+        dots_count = 0
+        while not self._anim_stop_event.is_set():
+            time.sleep(0.5)
+            st = getattr(self, "_current_status", "idle")
+            if st == "listening":
+                # Pisca a lampadinha vermelha a cada meio segundo (REC 🔴 e REC ⚫)
+                dot_state = not dot_state
+                self.title = "REC 🔴" if dot_state else "REC ⚫"
+            elif st == "processing":
+                # Animação de pontos de 0 até 3 e volta a 0
+                dots_count = (dots_count + 1) % 4
+                dots_str = "." * dots_count
+                self.title = f"REC{dots_str}"
+            else:
+                if self.title != "🟢":
+                    self.title = "🟢"
 
     def update_status(self, status: str, detail: Optional[str] = None):
         """Atualiza o ícone e texto do menu bar ao vivo conforme o estado da aplicação."""
