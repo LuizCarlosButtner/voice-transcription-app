@@ -13,6 +13,7 @@ from transcriber import transcriber
 from rewriter import rewriter
 from active_app import has_focused_text_input, get_frontmost_app
 from inserter import inserter
+from prompt_modal import show_input_selection_prompt
 
 # Limiar de tempo para diferenciar toque rápido (tap) de segurar (hold)
 TAP_THRESHOLD_SEC = 0.35
@@ -91,10 +92,9 @@ class VoiceDaemon:
         settings = get_settings()
 
         # 1. Guarda de foco (verifica campo editável antes de gravar)
+        # O usuário pode começar a ditar mesmo sem foco prévio; gravamos para nunca perder a fala!
         has_focus, app_name, role = has_focused_text_input()
-        if not has_focus:
-            self._set_status("no_focus", f"Nenhum campo de texto em foco no {app_name}")
-            return
+        self._had_focus_at_start = has_focus
 
         self._is_recording = True
         self._active_app_info = get_frontmost_app()
@@ -200,7 +200,14 @@ class VoiceDaemon:
             grammar_applied = rw_res.get("grammar_fixed", False)
 
             # 3. Inserção contínua no cursor (Append)
-            inserted = inserter.insert_text(text_final)
+            has_focus_now, _, _ = has_focused_text_input()
+            inserted = False
+            if has_focus_now:
+                inserted = inserter.insert_text(text_final)
+
+            # Se não havia campo focado ou a inserção falhou, abre o modal de assistência
+            if not inserted:
+                inserted = show_input_selection_prompt(text_final)
 
             # 4. Atualização de status no histórico SQLite:
             # Se inseriu com sucesso -> 'sent'

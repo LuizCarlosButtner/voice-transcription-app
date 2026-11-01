@@ -2,11 +2,38 @@ import time
 import threading
 from typing import Optional
 import pyperclip
-from pynput.keyboard import Controller, Key
+import Quartz
 from config import get_settings
 
-keyboard_controller = Controller()
 _insertion_lock = threading.Lock()
+
+def _post_cmd_v_quartz():
+    """
+    Dispara Command + V usando eventos nativos do Quartz CoreGraphics (CGEvent).
+    Funciona no macOS de forma direta e sem depender do daemon osascript.
+    KeyCode 9 = tecla 'v' no teclado padrão do Mac.
+    """
+    # Key down Command + V
+    event_down = Quartz.CGEventCreateKeyboardEvent(None, 9, True)
+    Quartz.CGEventSetFlags(event_down, Quartz.kCGEventFlagMaskCommand)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event_down)
+    time.sleep(0.02)
+    # Key up V
+    event_up = Quartz.CGEventCreateKeyboardEvent(None, 9, False)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event_up)
+
+def _post_unicode_string_quartz(text: str):
+    """
+    Digita os caracteres diretamente usando CGEventKeyboardSetUnicodeString.
+    Funciona mesmo se a colagem for bloqueada ou não houver foco direto de clipboard.
+    """
+    for char in text:
+        event_down = Quartz.CGEventCreateKeyboardEvent(None, 0, True)
+        Quartz.CGEventKeyboardSetUnicodeString(event_down, len(char), char)
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, event_down)
+        time.sleep(0.003)
+        event_up = Quartz.CGEventCreateKeyboardEvent(None, 0, False)
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, event_up)
 
 class TextInserter:
     def __init__(self):
@@ -24,10 +51,9 @@ class TextInserter:
         insertion_method = method or settings.insertion_method or "clipboard_paste"
 
         with _insertion_lock:
-            # Espaçamento inteligente: se a última inserção foi há menos de 10 segundos
-            # e o novo texto não começa com pontuação nem espaço, adiciona espaço à frente
             now = time.time()
             clean_text = text.strip()
+            # Adiciona espaço prévio se já houve inserção recente para manter a frase fluida
             if (now - self._last_insertion_time < 10.0) and settings.append_at_cursor:
                 if clean_text and clean_text[0] not in " .,!?;:\n":
                     clean_text = " " + clean_text
@@ -38,26 +64,22 @@ class TextInserter:
                 return self._insert_via_clipboard(clean_text)
 
     def _insert_via_clipboard(self, text: str) -> bool:
+        original_clipboard = ""
         try:
-            # 1. Salva o clipboard original do usuário
-            original_clipboard = ""
-            try:
-                original_clipboard = pyperclip.paste()
-            except Exception:
-                pass
+            original_clipboard = pyperclip.paste()
+        except Exception:
+            pass
 
-            # 2. Copia o novo texto transcrito para o clipboard
+        try:
+            # 1. Copia o novo texto para o clipboard
             pyperclip.copy(text)
-            time.sleep(0.04)
+            time.sleep(0.08)
 
-            # 3. Dispara Command + V no macOS
-            with keyboard_controller.pressed(Key.cmd):
-                keyboard_controller.press('v')
-                keyboard_controller.release('v')
+            # 2. Dispara Command + V nativo via Quartz
+            _post_cmd_v_quartz()
+            time.sleep(0.15)  # Tempo para o aplicativo alvo (Notas, Chrome, etc.) absorver o paste
 
-            time.sleep(0.08)  # Tempo para o aplicativo de destino absorver o paste
-
-            # 4. Restaura o clipboard original do usuário
+            # 3. Restaura o clipboard original do usuário
             if original_clipboard:
                 pyperclip.copy(original_clipboard)
 
@@ -65,17 +87,17 @@ class TextInserter:
             return True
 
         except Exception as e:
-            # Se falhar a colagem, tenta fallback por digitação de teclas
+            # Fallback para digitação via caracteres Quartz
             try:
-                return self._insert_via_keystrokes(text)
+                _post_unicode_string_quartz(text)
+                self._last_insertion_time = time.time()
+                return True
             except Exception:
                 return False
 
     def _insert_via_keystrokes(self, text: str) -> bool:
         try:
-            for char in text:
-                keyboard_controller.type(char)
-                time.sleep(0.005)
+            _post_unicode_string_quartz(text)
             self._last_insertion_time = time.time()
             return True
         except Exception:
