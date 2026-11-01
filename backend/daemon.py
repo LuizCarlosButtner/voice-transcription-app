@@ -14,13 +14,17 @@ from rewriter import rewriter
 from active_app import has_focused_text_input, get_frontmost_app
 from inserter import inserter
 
+# Limiar de tempo para diferenciar toque rápido (tap) de segurar (hold)
+TAP_THRESHOLD_SEC = 0.35
+
 class VoiceDaemon:
     def __init__(self, on_status_change: Optional[Callable[[str, Optional[str]], None]] = None):
         self.on_status_change = on_status_change or (lambda status, detail: None)
         self._current_entry_id: Optional[str] = None
         self._current_audio_path: Optional[Path] = None
-        self._is_holding = False
-        self._last_key_press_time = 0.0
+        self._is_recording = False
+        self._is_toggle_active = False  # Ativado via toque simples (fica ligado até o próximo toque)
+        self._press_start_time = 0.0
         self._active_app_info = {}
         self._focused_role = None
         self._lock = threading.Lock()
@@ -51,29 +55,37 @@ class VoiceDaemon:
 
         if self._is_hotkey(key):
             with self._lock:
-                now = time.time()
-                settings = get_settings()
+                # Se já estiver em gravação contínua acionada por toque simples prévio,
+                # este segundo toque desliga a gravação imediatamente
+                if self._is_toggle_active and self._is_recording:
+                    self._is_toggle_active = False
+                    self._handle_stop()
+                    return
 
-                # Detecção de double tap para alternar modo toggle
-                if now - self._last_key_press_time < 0.35:
-                    if self._is_holding:
-                        # Segundo toque rápido desliga gravação
-                        self._handle_stop()
-                        self._last_key_press_time = 0.0
-                        return
-
-                self._last_key_press_time = now
-
-                if not self._is_holding:
+                # Se não estiver gravando, inicia nova sessão
+                if not self._is_recording:
+                    self._press_start_time = time.time()
                     self._handle_start()
 
     def on_release(self, key):
         if self._is_hotkey(key):
-            settings = get_settings()
-            if not settings.toggle_mode:
-                with self._lock:
-                    if self._is_holding:
-                        self._handle_stop()
+            with self._lock:
+                if not self._is_recording:
+                    return
+
+                held_duration = time.time() - self._press_start_time
+
+                # Comportamento Híbrido:
+                # 1. Se segurou por mais de TAP_THRESHOLD_SEC: é Push-and-Hold explícito
+                #    -> Soltou o dedo, encerra a gravação e envia o texto!
+                # 2. Se soltou rapidamente (< TAP_THRESHOLD_SEC): é Tap-to-Toggle
+                #    -> Mantém gravando até que o usuário pressione a tecla novamente!
+                if held_duration >= TAP_THRESHOLD_SEC:
+                    self._is_toggle_active = False
+                    self._handle_stop()
+                else:
+                    self._is_toggle_active = True
+                    self._set_status("listening", "Gravando continuamente (toque novamente para enviar)...")
 
     def _handle_start(self):
         settings = get_settings()
@@ -84,7 +96,7 @@ class VoiceDaemon:
             self._set_status("no_focus", f"Nenhum campo de texto em foco no {app_name}")
             return
 
-        self._is_holding = True
+        self._is_recording = True
         self._active_app_info = get_frontmost_app()
         self._focused_role = role
 
@@ -100,7 +112,7 @@ class VoiceDaemon:
             entry_id=entry_id,
             active_app=self._active_app_info.get("name"),
             focused_element=role,
-            mode="toggle" if settings.toggle_mode else "push_and_hold",
+            mode="hybrid_tap_hold",
             language=settings.language,
             provider=settings.provider,
             tone=settings.tone
@@ -109,7 +121,8 @@ class VoiceDaemon:
         # 3. Inicia gravação de áudio
         ok, msg = recorder.start()
         if not ok:
-            self._is_holding = False
+            self._is_recording = False
+            self._is_toggle_active = False
             history_manager.mark_error(entry_id, 0, msg)
             self._set_status("error", msg)
             return
@@ -117,7 +130,8 @@ class VoiceDaemon:
         self._set_status("listening", f"Gravando para {self._active_app_info.get('name')}...")
 
     def _handle_stop(self):
-        self._is_holding = False
+        self._is_recording = False
+        self._is_toggle_active = False
         entry_id = self._current_entry_id
         audio_path = self._current_audio_path
 
@@ -197,8 +211,9 @@ class VoiceDaemon:
 
     def _handle_cancel(self):
         with self._lock:
-            if self._is_holding or recorder.is_recording:
-                self._is_holding = False
+            if self._is_recording or recorder.is_recording:
+                self._is_recording = False
+                self._is_toggle_active = False
                 recorder.cancel()
                 if self._current_entry_id:
                     history_manager.mark_cancelled(self._current_entry_id)

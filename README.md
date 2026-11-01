@@ -6,7 +6,9 @@ Aplicativo desktop autônomo para macOS que transforma voz em texto em qualquer 
 
 ## Recursos Principais
 
-- **Ativação Global Push-and-Hold:** Pressione e segure o atalho global (ou botão) para falar; ao soltar, o texto é transcrito e inserido imediatamente no cursor.
+- **Ativação Híbrida Inteligente (Hold para Falar OU Toque para Alternar):**
+  - **Push-and-Hold:** Pressione e segure o atalho global (`Option/Alt`). Enquanto estiver segurando, ele grava; soltou o dedo, ele encerra a gravação e envia o texto imediatamente.
+  - **Tap-to-Toggle (Toque Simples):** Se você apenas der um clique/toque rápido no atalho e soltar, ele ativa a gravação contínua e permanece ligado. Quando terminar de falar, basta pressionar o atalho mais uma vez para encerrar e enviar.
 - **Sem Quebra por Pausa:** O áudio é capturado continuamente enquanto a tecla estiver pressionada, sem divisão prematura por silêncio.
 - **Inserção Incremental (Append):** Repetidos ciclos de fala adicionam o texto de forma contínua no cursor sem substituir o conteúdo existente.
 - **Guarda de Foco:** O aplicativo detecta via Acessibilidade (macOS AXUIElement) se há um campo de texto em foco antes de iniciar a gravação, prevenindo acionamentos acidentais.
