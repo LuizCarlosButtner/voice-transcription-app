@@ -35,8 +35,15 @@ def get_frontmost_app() -> Dict[str, Any]:
 
 def has_focused_text_input() -> Tuple[bool, str, Optional[str]]:
     """
-    Guarda de foco: verifica se há um campo de texto ativo e focado no app em primeiro plano.
-    Retorna: (has_focus: bool, app_name: str, focused_role: Optional[str])
+    Guarda de foco PERMISSIVA.
+    Retorna (has_focus: bool, app_name: str, focused_role: Optional[str]).
+
+    IMPORTANTE (diagnóstico real 01/11): o Chrome/Chromium NÃO expõe o elemento
+    focado de forma confiável via AXFocusedUIElementAttribute — retorna
+    kAXErrorCannotComplete (-25212). Nesses casos, NÃO devemos concluir que
+    "não há foco": o Cmd+V no cursor continua funcionando normalmente no app.
+    Portanto, em qualquer erro/indeterminação do AX, assumimos que há foco
+    (comportamento permissivo), evitando o falso "nenhum campo selecionado".
     """
     app_info = get_frontmost_app()
     app_name = app_info["name"]
@@ -45,38 +52,40 @@ def has_focused_text_input() -> Tuple[bool, str, Optional[str]]:
     if pid <= 0:
         return False, app_name, None
 
-    # Se a acessibilidade não estiver habilitada, registramos e permitimos com aviso
+    # Sem acessibilidade concedida, não conseguimos inspecionar; assume foco (permissivo)
     if not is_accessibility_trusted(prompt=False):
-        # Sem acessibilidade concedida, não conseguimos inspecionar os nós AX
-        # Retornamos permissivo para apps conhecidos de edição
         return True, app_name, "AXPermissionPending"
 
     try:
         app_ax = AS.AXUIElementCreateApplication(pid)
         err, focused_elem = AS.AXUIElementCopyAttributeValue(app_ax, AS.kAXFocusedUIElementAttribute, None)
+
+        # Se o AX não conseguiu determinar o foco (erro -25212 cannot-complete,
+        # -25204 api-disabled, etc.), assume que há foco para não bloquear a colagem.
         if err != 0 or not focused_elem:
-            return False, app_name, None
+            return True, app_name, "AXFocusAssumed"
 
         err_role, role = AS.AXUIElementCopyAttributeValue(focused_elem, AS.kAXRoleAttribute, None)
         role_str = str(role) if err_role == 0 and role else "Unknown"
 
-        # Verifica se o elemento focado é explicitamente um campo de texto
+        # Campo de texto explícito
         if role_str in TEXT_INPUT_ROLES:
             return True, app_name, role_str
 
-        # Em navegadores ou WebViews (ex: Chrome, Slack, VSCode), o elemento pode ser AXWebArea ou genérico
-        # mas possuir o atributo de seleção de texto ativa ou valor editável
+        # Possui seleção de texto ativa (indica campo editável)
         err_val, _ = AS.AXUIElementCopyAttributeValue(focused_elem, AS.kAXSelectedTextRangeAttribute, None)
         if err_val == 0:
             return True, app_name, f"{role_str}:SelectedRange"
 
-        # Se for um web view com foco ativo em elemento editável
+        # Web view / grupo com ancestral editável (ex: navegadores)
         if "Web" in role_str or role_str == "AXGroup":
-            err_editable, is_editable = AS.AXUIElementCopyAttributeValue(focused_elem, "AXEditableAncestor", None)
-            if err_editable == 0 and is_editable:
-                return True, app_name, f"{role_str}:Editable"
+            return True, app_name, f"{role_str}:Editable"
 
-        return False, app_name, role_str
+        # Chegou até aqui com um papel conhecido e não-editável.
+        # Ainda assim, para não perder a colagem em apps que reportam papel genérico,
+        # retornamos permissivo. (A colagem via Cmd+V é decidida pelo cursor do SO.)
+        return True, app_name, role_str
 
     except Exception:
-        return False, app_name, None
+        # Qualquer exceção de inspeção: assume foco (permissivo)
+        return True, app_name, "AXExceptionAssumed"

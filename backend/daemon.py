@@ -200,12 +200,10 @@ class VoiceDaemon:
             grammar_applied = rw_res.get("grammar_fixed", False)
 
             # 3. Inserção contínua no cursor (Append)
-            has_focus_now, _, _ = has_focused_text_input()
-            inserted = False
-            if has_focus_now:
-                inserted = inserter.insert_text(text_final)
+            # SEMPRE tenta colar no cursor (o SO roteia o Cmd+V para o campo focado).
+            inserted = inserter.insert_text(text_final)
 
-            # Se não havia campo focado ou a inserção falhou, abre o modal de assistência
+            # Só abre o modal de assistência se a colagem realmente falhou
             if not inserted:
                 inserted = show_input_selection_prompt(text_final)
 
