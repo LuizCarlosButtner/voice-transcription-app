@@ -69,6 +69,7 @@ const settingHotkey = document.getElementById("setting-hotkey");
 const settingLanguage = document.getElementById("setting-language");
 const settingChunkBackup = document.getElementById("setting-chunk-backup");
 const settingChunkStart = document.getElementById("setting-chunk-start");
+const settingSilenceStop = document.getElementById("setting-silence-stop");
 const btnSaveSettings = document.getElementById("btn-save-settings");
 const btnResetSettings = document.getElementById("btn-reset-settings");
 
@@ -394,6 +395,7 @@ function updateUIStatus(data) {
   settingLanguage.value = data.language || "pt";
   if (settingChunkBackup) settingChunkBackup.checked = data.chunk_backup_enabled !== false;
   if (settingChunkStart) settingChunkStart.value = data.chunk_start_seconds || 40;
+  if (settingSilenceStop) settingSilenceStop.value = data.silence_auto_stop_seconds || 60;
 
   // Sync translation toggle
   syncTranslationUI(!!data.translate_to_english);

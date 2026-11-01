@@ -100,6 +100,13 @@ class VoiceTranscriptionTrayApp(rumps.App):
         )
         self.settings_menu.add(self.chunk_threshold_item)
 
+        # Auto-parada por Silêncio (Campo Livre, default 60s)
+        self.silence_stop_item = rumps.MenuItem(
+            f"Auto-Parar após Silêncio: {settings.silence_auto_stop_seconds}s (Alterar...)",
+            callback=self.on_change_silence_stop
+        )
+        self.settings_menu.add(self.silence_stop_item)
+
         self.menu.add(self.settings_menu)
         self.menu.add(rumps.separator)
 
@@ -198,6 +205,31 @@ class VoiceTranscriptionTrayApp(rumps.App):
                     update_settings({"chunk_start_seconds": val})
                     sender.title = f"Iniciar Chunks aos: {val}s (Alterar...)"
                     rumps.notification("Voice Transcription", "Limiar Atualizado", f"Chunks iniciarão após {val} segundos de fala.")
+                else:
+                    rumps.alert("Valor Inválido", "O tempo mínimo deve ser de pelo menos 5 segundos.")
+            except ValueError:
+                rumps.alert("Valor Inválido", "Por favor digite um número inteiro válido em segundos.")
+
+    def on_change_silence_stop(self, sender):
+        """Abre janela para o usuário digitar livremente o tempo de silêncio antes da auto-parada."""
+        settings = get_settings()
+        window = rumps.Window(
+            message=f"Digite quantos segundos de silêncio contínuo o aplicativo deve aguardar antes de parar e transcrever automaticamente:\n\nAtual: {settings.silence_auto_stop_seconds} segundos (Padrão: 60s)",
+            title="Auto-Parada por Silêncio",
+            default_text=str(settings.silence_auto_stop_seconds),
+            ok="Salvar",
+            cancel="Cancelar",
+            dimensions=(280, 24)
+        )
+        response = window.run()
+        if response.clicked:
+            text_val = response.text.strip()
+            try:
+                val = int(text_val)
+                if val >= 5:
+                    update_settings({"silence_auto_stop_seconds": val})
+                    sender.title = f"Auto-Parar após Silêncio: {val}s (Alterar...)"
+                    rumps.notification("Voice Transcription", "Auto-Parada Atualizada", f"Auto-parar após {val} segundos de silêncio.")
                 else:
                     rumps.alert("Valor Inválido", "O tempo mínimo deve ser de pelo menos 5 segundos.")
             except ValueError:

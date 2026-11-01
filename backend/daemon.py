@@ -261,6 +261,15 @@ class VoiceDaemon:
                     )
                 self._set_status("idle", "Gravação cancelada (áudio preservado)")
 
+    def _handle_auto_stop(self):
+        """Chamado pelo recorder quando detecta silêncio contínuo prolongado.
+        Para a gravação e dispara a transcrição automaticamente."""
+        with self._lock:
+            if self._is_recording or recorder.is_recording:
+                self._is_toggle_active = False
+                self._set_status("processing", "Silêncio detectado — transcrevendo...")
+                self._handle_stop()
+
     async def recover_and_insert(self, entry_id: str) -> bool:
         """
         Recupera uma gravação do menu de pendências e cola no cursor do app ativo.
@@ -320,6 +329,9 @@ class VoiceDaemon:
 
     def start_listening(self, loop: Optional[asyncio.AbstractEventLoop] = None):
         """Inicia o escutador de teclado global pynput em background e resgata sessões órfãs."""
+        # Liga o callback de auto-parada por silêncio do recorder ao daemon
+        recorder.on_auto_stop = self._handle_auto_stop
+
         # Executa recuperação idempotente de crashes anteriores
         try:
             recovered = history_manager.recover_orphaned_chunks()

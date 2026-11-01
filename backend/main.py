@@ -82,6 +82,7 @@ class SettingsUpdate(BaseModel):
     chunk_backup_enabled: Optional[bool] = None
     chunk_start_seconds: Optional[int] = None
     chunk_seconds: Optional[int] = None
+    silence_auto_stop_seconds: Optional[int] = None
 
 # --- Endpoints ---
 
@@ -112,6 +113,7 @@ def get_status():
         "chunk_backup_enabled": settings.chunk_backup_enabled,
         "chunk_start_seconds": settings.chunk_start_seconds,
         "chunk_seconds": settings.chunk_seconds,
+        "silence_auto_stop_seconds": settings.silence_auto_stop_seconds,
         "permissions": {
             "accessibility_trusted": is_accessibility_trusted(),
             "microphone_status": get_macos_microphone_status()

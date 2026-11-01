@@ -9,6 +9,8 @@ from config import AUDIO_STORAGE_DIR, get_settings
 SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = 'int16'
+# Amplitude (pico, int16) acima da qual consideramos que há fala (evita ruído de fundo)
+SILENCE_SPEECH_THRESHOLD = 400
 
 def save_audio_file(audio_data: np.ndarray, destination_path: Path, sample_rate: int = SAMPLE_RATE) -> Path:
     """
@@ -86,6 +88,10 @@ class AudioRecorder:
         self._watchdog_thread: Optional[threading.Thread] = None
         self._stop_watchdog_event = threading.Event()
 
+        # Detecção de silêncio para auto-parada
+        self._last_speech_time: float = 0.0
+        self.on_auto_stop: Optional[callable] = None  # callback chamado quando há silêncio prolongado
+
     @property
     def is_recording(self) -> bool:
         return self._is_recording
@@ -94,23 +100,63 @@ class AudioRecorder:
     def chunk_files(self) -> List[Path]:
         return list(self._chunk_files)
 
+    @property
+    def silence_duration(self) -> float:
+        """Segundos desde a última fala detectada (0 se não estiver gravando)."""
+        if not self._is_recording:
+            return 0.0
+        return time.time() - self._last_speech_time
+
     def _audio_callback(self, indata, frames, time_info, status):
         if status:
             pass
         if self._is_recording:
             with self._lock:
                 self._frames.append(indata.copy())
+                # Atualiza o marcador de fala quando o pico supera o limiar
+                try:
+                    peak = float(np.max(np.abs(indata)))
+                    if peak >= SILENCE_SPEECH_THRESHOLD:
+                        self._last_speech_time = time.time()
+                except Exception:
+                    pass
 
     def _watchdog_loop(self):
         """
         Thread de segurança: monitora a gravação ativa.
-        A partir do limiar (default 40s), salva fatias de 30s como chunks .ogg em disco.
+        - A partir do limiar (default 40s), salva fatias de 30s como chunks .ogg.
+        - Se detectar silêncio contínuo por silence_auto_stop_seconds (default 60s),
+          dispara a auto-parada para não ficar gravando indefinidamente.
         """
         while not self._stop_watchdog_event.is_set():
             time.sleep(1.0)
             if not self._is_recording:
                 break
             self._maybe_flush_chunk()
+            self._maybe_auto_stop()
+
+    def _maybe_auto_stop(self):
+        """Auto-para a gravação quando há silêncio contínuo acima do limite configurado."""
+        settings = get_settings()
+        limit = settings.silence_auto_stop_seconds
+        if not limit or limit <= 0:
+            return  # recurso desativado
+        if not self._is_recording:
+            return
+        if self.silence_duration >= limit:
+            cb = self.on_auto_stop
+            if cb is not None:
+                # Chama o callback (daemon._handle_auto_stop) fora do lock do recorder
+                try:
+                    cb()
+                except Exception:
+                    pass
+            else:
+                # Fallback: para localmente se não houver callback registrado
+                try:
+                    self.stop()
+                except Exception:
+                    pass
 
     def _maybe_flush_chunk(self):
         settings = get_settings()
@@ -167,6 +213,7 @@ class AudioRecorder:
             self._flushed_samples = 0
             self._chunk_index = 0
             self._chunk_files = []
+            self._last_speech_time = time.time()
             self._stop_watchdog_event.clear()
 
             try:

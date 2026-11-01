@@ -24,6 +24,9 @@ Aplicativo desktop autônomo para macOS que transforma voz em texto em qualquer 
   - Para áudios longos, o aplicativo inicia automaticamente a gravação de chunks de 30s em tempo real após um limiar configurável (padrão de 40 segundos, digitável livremente).
   - Se a máquina reiniciar, travar ou sofrer queda abrupta, o áudio já fatiado em disco é resgatado automaticamente como sessão recuperada no próximo boot.
   - Áudio salvo em formato enxuto OGG Vorbis (~300 KB/min), ocupando fração mínima de disco comparado ao WAV.
+- **Auto-Parada Inteligente por Silêncio (Proteção contra Gravação Infinita):**
+  - Se você esquecer a gravação ligada ou acionar a tecla por engano e não falar nada por um tempo configurável (padrão de **60 segundos / 1 minuto**), o aplicativo interrompe a captura e finaliza a transcrição automaticamente, poupando CPU, memória e requisições desnecessárias.
+  - O tempo de tolerância de silêncio pode ser alterado livremente digitando o valor em segundos na barra de menus ou no painel web.
 - **Menu de Recuperação Direta:**
   - Áudios não enviados, cancelados ou recuperados de falhas aparecem diretamente no submenu `🔄 Recuperação (Não Enviados)` da barra de menus.
   - Clicando no item, o aplicativo transcreve (se necessário) e insere o texto **exatamente onde o cursor estiver posicionado**, sem nunca apagar ou sobrescrever o texto existente.

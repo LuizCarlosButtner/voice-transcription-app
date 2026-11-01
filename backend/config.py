@@ -44,6 +44,7 @@ class Settings(BaseModel):
     chunk_backup_enabled: bool = Field(default=True, description="Se ativo, grava chunks em disco continuamente para evitar perda de fala")
     chunk_start_seconds: int = Field(default=40, description="Tempo inicial de fala em segundos antes de iniciar o corte em chunks (default 40s, digitável)")
     chunk_seconds: int = Field(default=30, description="Duração de cada fatia/chunk de backup em segundos")
+    silence_auto_stop_seconds: int = Field(default=60, description="Auto-parar e transcrever após N segundos de silêncio contínuo (default 60s, digitável)")
     
     # Sistema e Rede
     host: str = Field(default="127.0.0.1")
