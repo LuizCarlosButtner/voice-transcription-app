@@ -9,11 +9,11 @@ from autostart import is_autostart_installed, install_autostart, uninstall_autos
 from history import history_manager
 
 STATUS_ICONS = {
-    "idle": "🎙️ 🟢",
-    "listening": "🎙️ 🔴 Gravando...",
-    "processing": "🎙️ 🟡 Transcrevendo...",
-    "no_focus": "🎙️ ⚠️ Sem Foco",
-    "error": "🎙️ ⚠️ Erro"
+    "idle": "🟢",
+    "listening": "🔴 Gravando...",
+    "processing": "🟡 Transcrevendo...",
+    "no_focus": "⚠️ Sem Foco",
+    "error": "⚠️ Erro"
 }
 
 TONES = [
@@ -260,7 +260,7 @@ class VoiceTranscriptionTrayApp(rumps.App):
     def update_status(self, status: str, detail: Optional[str] = None):
         """Atualiza o ícone e texto do menu bar ao vivo conforme o estado da aplicação."""
         self._current_status = status
-        self.title = STATUS_ICONS.get(status, "🎙️")
+        self.title = STATUS_ICONS.get(status, "🟢")
         detail_msg = detail or status.capitalize()
         self.status_item.title = f"Status: {detail_msg}"
 
