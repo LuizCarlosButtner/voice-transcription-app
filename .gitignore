@@ -1,19 +1,38 @@
-# Environment variables & API keys
+# Segredos e Chaves de API
 .env
 .env.*
 *.env
+!**/.env.example
 
-# Agent files, prompts & markdown docs
-agents/
+# Scripts/arquivos de IA e prompts internos (nunca versionar)
+AGENTS.md
 agents.md
+agents.com
+Ejits.md
 cloud.md
-*.md
+**/agents/
+*.agents.md
+!README.md
+!LICENSE
 
-# Build outputs & dependencies
+# Compilação, dependências e ambiente
 node_modules/
 dist/
 build/
 __pycache__/
 *.pyc
 venv/
+.venv/
 .DS_Store
+
+# Dados locais do aplicativo (histórico e áudios gravados)
+data/
+audio/
+*.db
+*.sqlite
+*.sqlite3
+*.wav
+*.mp3
+*.ogg
+*.m4a
+*.log
