@@ -9,6 +9,7 @@ import rumps
 from config import get_settings, update_settings, BASE_APP_DIR
 from autostart import is_autostart_installed, install_autostart, uninstall_autostart
 from history import history_manager
+from floating_overlay import floating_overlay
 
 STATUS_ICONS = {
     "idle": "🟢",
@@ -33,9 +34,10 @@ class VoiceTranscriptionTrayApp(rumps.App):
         self._anim_thread = None
         self._anim_stop_event = threading.Event()
 
-        # Inicia thread de animação em background
+        # Inicia thread de animação em background e o overlay flutuante na tela
         self._anim_thread = threading.Thread(target=self._animation_loop, daemon=True)
         self._anim_thread.start()
+        floating_overlay.start()
 
         # 1. Item informativo de status
         self.status_item = rumps.MenuItem("Status: Pronto (Ocioso)")
@@ -294,6 +296,7 @@ class VoiceTranscriptionTrayApp(rumps.App):
 
     def on_quit_clicked(self, sender):
         self._anim_stop_event.set()
+        floating_overlay.stop()
         if self.daemon_ref:
             self.daemon_ref.stop_listening()
         rumps.quit_application()
@@ -324,6 +327,9 @@ class VoiceTranscriptionTrayApp(rumps.App):
         self.title = STATUS_ICONS.get(status, "🟢")
         detail_msg = detail or status.capitalize()
         self.status_item.title = f"Status: {detail_msg}"
+
+        # Sincroniza também com o indicador flutuante na tela (Overlay)
+        floating_overlay.set_status(status, detail)
 
         if status == "listening":
             self.record_item.title = "Parar Gravação (Soltar)"
