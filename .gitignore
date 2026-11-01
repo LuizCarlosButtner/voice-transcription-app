@@ -1,0 +1,19 @@
+# Environment variables & API keys
+.env
+.env.*
+*.env
+
+# Agent files, prompts & markdown docs
+agents/
+agents.md
+cloud.md
+*.md
+
+# Build outputs & dependencies
+node_modules/
+dist/
+build/
+__pycache__/
+*.pyc
+venv/
+.DS_Store
