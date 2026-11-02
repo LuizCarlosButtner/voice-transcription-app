@@ -308,6 +308,10 @@ class VoiceDaemon:
         """
         Recupera uma gravação do menu de pendências e cola no cursor do app ativo.
         """
+        # Dá uma pausa de 0.6s para que o menu nativo da barra de menus se feche
+        # e o foco do cursor retorne ao aplicativo de texto onde o usuário estava digitando!
+        await asyncio.sleep(0.6)
+
         entry = history_manager.get_entry(entry_id)
         if not entry:
             return False

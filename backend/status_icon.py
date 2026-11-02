@@ -165,17 +165,18 @@ class VoiceTranscriptionTrayApp(rumps.App):
             for item in recoverable:
                 entry_id = item["id"]
                 raw_preview = item.get("text_final") or item.get("text_raw") or "Áudio não transcrito"
-                # Exibe o início da frase e o horário do erro de forma limpa e direta
                 short_text = (raw_preview[:28] + "...") if len(raw_preview) > 28 else raw_preview
                 
-                # Formata hora HH:MM:SS
+                # Formata hora local HH:MM:SS real do relógio do Mac
                 time_str = ""
                 created = item.get("created_at")
                 if created:
                     try:
-                        # Extrai hora de ISO string YYYY-MM-DDTHH:MM:SS...
-                        time_part = created.split("T")[1].split(".")[0]
-                        time_str = f"[{time_part}] "
+                        import datetime
+                        # Faz o parse da string ISO (seja com offset ou Z) e converte para timezone local do Mac
+                        dt = datetime.datetime.fromisoformat(created.replace("Z", "+00:00"))
+                        local_dt = dt.astimezone()
+                        time_str = f"[{local_dt.strftime('%H:%M:%S')}] "
                     except Exception:
                         pass
 

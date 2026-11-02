@@ -66,7 +66,8 @@ class HistoryManager:
         retry_of: Optional[str] = None
     ) -> str:
         eid = entry_id or str(uuid.uuid4())
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        # Usa o horário local real do computador (com fuso horário local, ex: -03:00 São Paulo)
+        now = datetime.datetime.now().astimezone().isoformat()
         with get_connection() as conn:
             conn.execute(
                 """
@@ -163,7 +164,7 @@ class HistoryManager:
     ):
         """Registra áudio recuperado de chunks órfãos gerados antes de um crash ou desligamento."""
         chunks_json = json.dumps(chunk_files)
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        now = datetime.datetime.now().astimezone().isoformat()
         with get_connection() as conn:
             conn.execute(
                 """
