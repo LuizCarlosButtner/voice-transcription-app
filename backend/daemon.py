@@ -15,7 +15,7 @@ from active_app import has_focused_text_input, get_frontmost_app
 from inserter import inserter
 from prompt_modal import show_input_selection_prompt
 
-# Limiar de tempo para diferenciar toque rápido (tap) de segurar (hold)
+# Tempo limite para diferenciar um toque curto (tap) de segurar (hold)
 TAP_THRESHOLD_SEC = 0.35
 
 class VoiceDaemon:
@@ -23,11 +23,16 @@ class VoiceDaemon:
         self.on_status_change = on_status_change or (lambda status, detail: None)
         self._current_entry_id: Optional[str] = None
         self._current_audio_path: Optional[Path] = None
+        
+        # Estados atômicos claros
         self._is_recording = False
-        self._is_toggle_active = False  # Ativado via toque simples (fica ligado até o próximo toque)
+        self._is_processing = False
+        self._mode = "idle"  # "idle" | "holding" | "toggle"
+        
         self._press_start_time = 0.0
         self._active_app_info = {}
         self._focused_role = None
+        
         self._lock = threading.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._listener: Optional[keyboard.Listener] = None
@@ -40,7 +45,6 @@ class VoiceDaemon:
         settings = get_settings()
         hotkey_name = (settings.hotkey or "Alt").lower()
         if hotkey_name in ("alt", "option"):
-            # Compara tanto por instância de Key quanto por nome ou keyCode
             if key in (keyboard.Key.alt, getattr(keyboard.Key, "alt_l", keyboard.Key.alt), getattr(keyboard.Key, "alt_r", keyboard.Key.alt)):
                 return True
             k_name = getattr(key, "name", "")
@@ -85,15 +89,19 @@ class VoiceDaemon:
 
         if self._is_hotkey(key):
             with self._lock:
-                # Se já estiver em gravação contínua acionada por toque simples prévio,
-                # este segundo toque desliga a gravação imediatamente
-                if self._is_toggle_active and self._is_recording:
-                    self._is_toggle_active = False
+                # Se estiver transcrevendo no momento, ignora toques repetidos até terminar
+                if self._is_processing:
+                    return
+
+                # Se estava em modo TOGGLE contínuo ativo, este novo toque encerra a gravação
+                if self._mode == "toggle" and self._is_recording:
+                    self._mode = "idle"
                     self._handle_stop()
                     return
 
-                # Se não estiver gravando, inicia nova sessão
+                # Se não estava gravando, inicia nova gravação
                 if not self._is_recording:
+                    self._mode = "holding"
                     self._press_start_time = time.time()
                     self._handle_start()
 
@@ -105,23 +113,21 @@ class VoiceDaemon:
 
                 held_duration = time.time() - self._press_start_time
 
-                # Comportamento Híbrido:
-                # 1. Se segurou por mais de TAP_THRESHOLD_SEC: é Push-and-Hold explícito
-                #    -> Soltou o dedo, encerra a gravação e envia o texto!
-                # 2. Se soltou rapidamente (< TAP_THRESHOLD_SEC): é Tap-to-Toggle
-                #    -> Mantém gravando até que o usuário pressione a tecla novamente!
-                if held_duration >= TAP_THRESHOLD_SEC:
-                    self._is_toggle_active = False
-                    self._handle_stop()
-                else:
-                    self._is_toggle_active = True
-                    self._set_status("listening", "Gravando continuamente (toque novamente para enviar)...")
+                # Se estava segurando (holding):
+                if self._mode == "holding":
+                    if held_duration >= TAP_THRESHOLD_SEC:
+                        # Segurou tempo suficiente -> Push-and-Hold explícito: soltou o dedo, para e envia!
+                        self._mode = "idle"
+                        self._handle_stop()
+                    else:
+                        # Toque curto e rápido (< 0.35s) -> Vira TOGGLE (gravação contínua)!
+                        # Não desliga o microfone, avisa na UI e aguarda o próximo toque do usuário
+                        self._mode = "toggle"
+                        self._set_status("listening", "Gravando contínuo (toque novamente para enviar)...")
 
     def _handle_start(self):
         settings = get_settings()
 
-        # 1. Guarda de foco (verifica campo editável antes de gravar)
-        # O usuário pode começar a ditar mesmo sem foco prévio; gravamos para nunca perder a fala!
         has_focus, app_name, role = has_focused_text_input()
         self._had_focus_at_start = has_focus
 
@@ -151,7 +157,7 @@ class VoiceDaemon:
         ok, msg = recorder.start(session_id=entry_id)
         if not ok:
             self._is_recording = False
-            self._is_toggle_active = False
+            self._mode = "idle"
             history_manager.mark_error(entry_id, 0, msg)
             self._set_status("error", msg)
             return
@@ -160,40 +166,42 @@ class VoiceDaemon:
 
     def _handle_stop(self):
         self._is_recording = False
-        self._is_toggle_active = False
+        self._mode = "idle"
         entry_id = self._current_entry_id
         audio_path = self._current_audio_path
 
         if not entry_id or not audio_path:
+            self._set_status("idle", "Pronto")
             return
 
+        # Seta status de processamento imediatamente
+        self._is_processing = True
         self._set_status("processing", "Transcrevendo...")
 
-        # Para gravação e salva arquivo físico WAV no disco
+        # Para gravação física do microfone imediatamente
         rec_info = recorder.stop(destination_path=audio_path)
         duration_ms = rec_info.get("duration_ms", 0)
 
         if not rec_info.get("ok"):
+            self._is_processing = False
             history_manager.mark_error(entry_id, duration_ms, rec_info.get("reason", "Erro de captura"))
             self._set_status("error", "Erro ao salvar áudio")
             return
 
         if rec_info.get("duration_ms", 0) < 200 or rec_info.get("is_silent"):
+            self._is_processing = False
             history_manager.mark_empty(entry_id, duration_ms)
             self._set_status("idle", "Áudio vazio ou muito curto")
             return
 
         # Executa processamento assíncrono (STT + Tom + Inserção)
-        if self._loop:
-            asyncio.run_coroutine_threadsafe(
-                self._process_pipeline(entry_id, audio_path, duration_ms),
-                self._loop
-            )
-        else:
-            threading.Thread(
-                target=lambda: asyncio.run(self._process_pipeline(entry_id, audio_path, duration_ms)),
-                daemon=True
-            ).start()
+        def _bg_task():
+            try:
+                asyncio.run(self._process_pipeline(entry_id, audio_path, duration_ms))
+            finally:
+                self._is_processing = False
+
+        threading.Thread(target=_bg_task, daemon=True).start()
 
     async def _process_pipeline(self, entry_id: str, audio_path: Path, duration_ms: int):
         settings = get_settings()
@@ -228,17 +236,15 @@ class VoiceDaemon:
             text_final = rw_res.get("text", text_raw).strip()
             grammar_applied = rw_res.get("grammar_fixed", False)
 
-            # 3. Inserção contínua no cursor (Append)
-            # SEMPRE tenta colar no cursor (o SO roteia o Cmd+V para o campo focado).
+            # 4. Inserção contínua no cursor (Append)
+            # SEMPRE tenta colar no cursor primeiro
             inserted = inserter.insert_text(text_final)
 
-            # Só abre o modal de assistência se a colagem realmente falhou
+            # Se a colagem falhou, abre o modal de assistência
             if not inserted:
                 inserted = show_input_selection_prompt(text_final)
 
-            # 4. Atualização de status no histórico SQLite:
-            # Se inseriu com sucesso -> 'sent'
-            # Se a transcrição funcionou mas a colagem falhou (ex: sem foco/bloqueado) -> 'written_not_sent'
+            # 5. Atualização de status no histórico SQLite
             if inserted:
                 history_manager.mark_sent(
                     entry_id=entry_id,
@@ -273,9 +279,9 @@ class VoiceDaemon:
         with self._lock:
             if self._is_recording or recorder.is_recording:
                 self._is_recording = False
-                self._is_toggle_active = False
+                self._mode = "idle"
                 
-                # Ao cancelar, o recorder salva o que foi falado em OGG e devolve os metadados
+                # Ao cancelar, salva o que foi falado em OGG e devolve os metadados
                 dest_path = self._current_audio_path or (AUDIO_STORAGE_DIR / f"{self._current_entry_id or 'cancelled'}.ogg")
                 res = recorder.cancel(destination_path=dest_path)
                 
@@ -291,21 +297,16 @@ class VoiceDaemon:
                 self._set_status("idle", "Gravação cancelada (áudio preservado)")
 
     def _handle_auto_stop(self):
-        """Chamado pelo recorder quando detecta silêncio contínuo prolongado.
-        Para a gravação e dispara a transcrição automaticamente."""
+        """Chamado pelo recorder quando detecta silêncio contínuo prolongado."""
         with self._lock:
             if self._is_recording or recorder.is_recording:
-                self._is_toggle_active = False
+                self._mode = "idle"
                 self._set_status("processing", "Silêncio detectado — transcrevendo...")
                 self._handle_stop()
 
     async def recover_and_insert(self, entry_id: str) -> bool:
         """
         Recupera uma gravação do menu de pendências e cola no cursor do app ativo.
-        REGRA RÍGIDA DO LUIZ:
-        - NUNCA apaga ou substitui o texto já existente no input.
-        - Sempre cola onde o cursor estiver posicionado (por padrão no final para continuar a frase).
-        - Se já possuir text_final, usa direto. Se for erro/cancelado/partial, retranscreve antes.
         """
         entry = history_manager.get_entry(entry_id)
         if not entry:
@@ -313,7 +314,6 @@ class VoiceDaemon:
 
         text_to_insert = entry.get("text_final") or entry.get("text_raw")
         
-        # Se não tiver texto transcrito ainda (ex: partial de crash ou cancelado sem transcrição prévia), retranscreve
         if not text_to_insert:
             audio_path = Path(entry.get("audio_path") or "")
             if not audio_path.exists() or audio_path.stat().st_size == 0:
@@ -339,7 +339,6 @@ class VoiceDaemon:
         if not text_to_insert:
             return False
 
-        # Inserção estritamente no cursor (Append contínuo, preservando o texto anterior)
         success = inserter.insert_text(text_to_insert)
         if success:
             history_manager.mark_sent(
@@ -358,10 +357,8 @@ class VoiceDaemon:
 
     def start_listening(self, loop: Optional[asyncio.AbstractEventLoop] = None):
         """Inicia o escutador de teclado global pynput em background e resgata sessões órfãs."""
-        # Liga o callback de auto-parada por silêncio do recorder ao daemon
         recorder.on_auto_stop = self._handle_auto_stop
 
-        # Executa recuperação idempotente de crashes anteriores
         try:
             recovered = history_manager.recover_orphaned_chunks()
             if recovered > 0:
