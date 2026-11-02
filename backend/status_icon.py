@@ -350,17 +350,24 @@ class VoiceTranscriptionTrayApp(rumps.App):
                 # Overlay flutuante: apenas a bolinha vermelha piscando discretamente
                 floating_overlay.update_dot("🔴" if dot_state else "", show=True)
             elif st == "processing":
-                dots_count = (dots_count + 1) % 4
-                if dots_count == 0:
-                    dots_padded = "   "
-                elif dots_count == 1:
-                    dots_padded = ".  "
-                elif dots_count == 2:
-                    dots_padded = ".. "
+                # Animação de onda viajante nas reticências com largura 100% fixa:
+                # Sempre 3 posições fixas, onde o ponto que "apaga" vira espaço em branco (' '):
+                # Frame 0: "..." (todos presentes)
+                # Frame 1: " .." (ponto 1 vira espaço)
+                # Frame 2: ". ." (ponto 2 vira espaço, ponto 1 reaparece)
+                # Frame 3: ".. " (ponto 3 vira espaço, pontos 1 e 2 presentes)
+                frame = dots_count % 4
+                if frame == 0:
+                    dots_wave = "..."
+                elif frame == 1:
+                    dots_wave = " .."
+                elif frame == 2:
+                    dots_wave = ". ."
                 else:
-                    dots_padded = "..."
-                
-                anim_text = f"🟡 REC{dots_padded}"
+                    dots_wave = ".. "
+
+                dots_count += 1
+                anim_text = f"🟡 REC {dots_wave}"
                 self.title = anim_text
                 # Overlay flutuante: bolinha amarela enquanto transcreve
                 floating_overlay.update_dot("🟡", show=True)
