@@ -156,7 +156,7 @@ class VoiceTranscriptionTrayApp(rumps.App):
                 for k in list(self.recovery_menu.keys()):
                     del self.recovery_menu[k]
 
-            recoverable = history_manager.list_recoverable(limit=8)
+            recoverable = history_manager.list_recoverable(limit=10)
             if not recoverable:
                 empty_item = rumps.MenuItem("Nenhum áudio pendente (Tudo enviado)")
                 self.recovery_menu.add(empty_item)
@@ -165,9 +165,21 @@ class VoiceTranscriptionTrayApp(rumps.App):
             for item in recoverable:
                 entry_id = item["id"]
                 raw_preview = item.get("text_final") or item.get("text_raw") or "Áudio não transcrito"
-                short_text = (raw_preview[:32] + "...") if len(raw_preview) > 32 else raw_preview
-                status_icon = "🛑" if item["status"] == "cancelled" else ("⚠️" if item["status"] == "error" else "📝")
-                label = f"{status_icon} {short_text}"
+                # Exibe o início da frase e o horário do erro de forma limpa e direta
+                short_text = (raw_preview[:28] + "...") if len(raw_preview) > 28 else raw_preview
+                
+                # Formata hora HH:MM:SS
+                time_str = ""
+                created = item.get("created_at")
+                if created:
+                    try:
+                        # Extrai hora de ISO string YYYY-MM-DDTHH:MM:SS...
+                        time_part = created.split("T")[1].split(".")[0]
+                        time_str = f"[{time_part}] "
+                    except Exception:
+                        pass
+
+                label = f"{time_str}\"{short_text}\""
 
                 menu_item = rumps.MenuItem(label, callback=self._make_recovery_callback(entry_id))
                 self.recovery_menu.add(menu_item)
@@ -335,13 +347,9 @@ class VoiceTranscriptionTrayApp(rumps.App):
                 dot_state = not dot_state
                 anim_text = "🔴 REC" if dot_state else "⚫ REC"
                 self.title = anim_text
-                floating_overlay.update(anim_text, show=True)
+                # Overlay flutuante: apenas a bolinha vermelha piscando discretamente
+                floating_overlay.update_dot("🔴" if dot_state else "", show=True)
             elif st == "processing":
-                # Animação de pontos:
-                # 0 pontos: 3 espaços -> "   "
-                # 1 ponto:  1 ponto + 2 espaços -> ".  "
-                # 2 pontos: 2 pontos + 1 espaço -> ".. "
-                # 3 pontos: 3 pontos + 0 espaço -> "..."
                 dots_count = (dots_count + 1) % 4
                 if dots_count == 0:
                     dots_padded = "   "
@@ -354,7 +362,8 @@ class VoiceTranscriptionTrayApp(rumps.App):
                 
                 anim_text = f"🟡 REC{dots_padded}"
                 self.title = anim_text
-                floating_overlay.update(anim_text, show=True)
+                # Overlay flutuante: bolinha amarela enquanto transcreve
+                floating_overlay.update_dot("🟡", show=True)
             else:
                 if self.title != "🟢":
                     self.title = "🟢"

@@ -40,7 +40,11 @@ class VoiceDaemon:
         settings = get_settings()
         hotkey_name = (settings.hotkey or "Alt").lower()
         if hotkey_name in ("alt", "option"):
+            # Compara tanto por instância de Key quanto por nome ou keyCode
             if key in (keyboard.Key.alt, getattr(keyboard.Key, "alt_l", keyboard.Key.alt), getattr(keyboard.Key, "alt_r", keyboard.Key.alt)):
+                return True
+            k_name = getattr(key, "name", "")
+            if k_name and "alt" in k_name:
                 return True
             if hasattr(key, "vk") and key.vk in (58, 61):
                 return True
@@ -48,17 +52,26 @@ class VoiceDaemon:
         elif hotkey_name in ("ctrl", "control"):
             if key in (keyboard.Key.ctrl, getattr(keyboard.Key, "ctrl_l", keyboard.Key.ctrl), getattr(keyboard.Key, "ctrl_r", keyboard.Key.ctrl)):
                 return True
+            k_name = getattr(key, "name", "")
+            if k_name and "ctrl" in k_name:
+                return True
             if hasattr(key, "vk") and key.vk in (59, 62):
                 return True
             return False
         elif hotkey_name == "cmd":
             if key in (keyboard.Key.cmd, getattr(keyboard.Key, "cmd_l", keyboard.Key.cmd), getattr(keyboard.Key, "cmd_r", keyboard.Key.cmd)):
                 return True
+            k_name = getattr(key, "name", "")
+            if k_name and "cmd" in k_name:
+                return True
             if hasattr(key, "vk") and key.vk in (55, 54):
                 return True
             return False
         elif hotkey_name == "shift":
             if key in (keyboard.Key.shift, getattr(keyboard.Key, "shift_l", keyboard.Key.shift), getattr(keyboard.Key, "shift_r", keyboard.Key.shift)):
+                return True
+            k_name = getattr(key, "name", "")
+            if k_name and "shift" in k_name:
                 return True
             if hasattr(key, "vk") and key.vk in (56, 60):
                 return True
