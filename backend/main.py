@@ -293,15 +293,44 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 FRONTEND_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
+def kill_zombie_port(port: int):
+    """Mata qualquer processo antigo ou zumbi preso na porta antes de subir o servidor."""
+    import signal, subprocess
+    try:
+        res = subprocess.run(["lsof", "-ti", f":{port}"], capture_output=True, text=True)
+        pids = res.stdout.strip().split()
+        my_pid = str(os.getpid())
+        for pid_str in pids:
+            if pid_str and pid_str != my_pid:
+                try:
+                    os.kill(int(pid_str), signal.SIGKILL)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
 def run_server():
     settings = get_settings()
+    kill_zombie_port(settings.port)
     uvicorn.run(app, host=settings.host, port=settings.port, log_level="warning")
 
 def run_app():
+    settings = get_settings()
+    kill_zombie_port(settings.port)
+
+    # Inicia o listener de atalho de teclado global IMEDIATAMENTE na inicialização
+    try:
+        recovered = history_manager.recover_orphaned_chunks()
+        if recovered > 0:
+            print(f"[RECOVERY] {recovered} sessão(ões) recuperadas!")
+        daemon.start_listening()
+    except Exception as e:
+        print(f"[DAEMON] Erro ao iniciar listener: {e}")
+
     # Executa o servidor FastAPI em thread paralela de segundo plano
     server_thread = threading.Thread(target=run_server, daemon=True)
     server_thread.start()
-    time.sleep(0.5)
+    time.sleep(0.3)
 
     # Conecta o ícone do Menu Bar do macOS na thread principal
     from status_icon import create_tray_app

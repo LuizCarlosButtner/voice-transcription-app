@@ -1,137 +1,98 @@
-import tkinter as tk
-import threading
 import time
+import threading
 from typing import Optional
+import AppKit
+from AppKit import (
+    NSPanel, NSColor, NSBackingStoreBuffered, NSScreen,
+    NSMakeRect, NSTextField, NSTextAlignmentCenter, NSFont
+)
 
-class FloatingStatusOverlay:
+from PyObjCTools import AppHelper
+
+class NativeFloatingOverlay:
     """
-    Indicador visual flutuante na tela (Always-on-top, sem bordas, estilo badge moderno).
-    Fica posicionado no topo central (próximo ao notch do Mac) ou canto superior direito,
-    exibindo cores pulsantes para Ocioso (Verde), Gravando (Vermelho piscando) e Transcrevendo (Amarelo).
+    Indicador visual flutuante nativo do macOS (AppKit / Cocoa puro).
+    Fica posicionado no topo central (logo abaixo do notch do Mac).
+    - Quando GRAVANDO: aparece piscando em vermelho (🔴 REC).
+    - Quando TRANSCREVENDO: fica amarelo com animação de pontos (🟡 REC...).
+    - Quando OCIOSO: DESAPARECE completamente da tela para não atrapalhar o usuário!
     """
     def __init__(self):
-        self._root: Optional[tk.Tk] = None
-        self._canvas: Optional[tk.Canvas] = None
-        self._dot_item = None
-        self._text_item = None
-        self._thread: Optional[threading.Thread] = None
-        self._current_status = "idle"
-        self._detail_text = "Pronto"
-        self._running = False
+        self._panel = None
+        self._label = None
+        self._is_visible = False
         self._lock = threading.Lock()
+        self._setup_done = False
+
+    def _ensure_panel(self):
+        if self._setup_done and self._panel is not None:
+            return
+
+        try:
+            screen = NSScreen.mainScreen()
+            if not screen:
+                return
+            s_frame = screen.frame()
+            w, h = 136, 32
+            x = (s_frame.size.width - w) / 2
+            y = s_frame.size.height - h - 6  # Centralizado no topo, logo abaixo do notch
+
+            rect = NSMakeRect(x, y, w, h)
+            style = 0 | (1 << 7)  # NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+            self._panel = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+                rect, style, NSBackingStoreBuffered, False
+            )
+            # Nível flutuante acima até de apps em tela cheia (F11)
+            self._panel.setLevel_(AppKit.NSStatusWindowLevel + 2)
+            self._panel.setOpaque_(False)
+            self._panel.setBackgroundColor_(NSColor.colorWithCalibratedRed_green_blue_alpha_(0.08, 0.08, 0.12, 0.94))
+            self._panel.setIgnoresMouseEvents_(True)  # Cliques passam direto para o app de trás
+            self._panel.setHasShadow_(True)
+
+            self._label = NSTextField.alloc().initWithFrame_(NSMakeRect(0, 4, w, 24))
+            self._label.setBezeled_(False)
+            self._label.setDrawsBackground_(False)
+            self._label.setEditable_(False)
+            self._label.setSelectable_(False)
+            self._label.setAlignment_(NSTextAlignmentCenter)
+            self._label.setStringValue_("")
+            self._label.setTextColor_(NSColor.whiteColor())
+            self._label.setFont_(NSFont.boldSystemFontOfSize_(12))
+            self._panel.contentView().addSubview_(self._label)
+
+            self._setup_done = True
+        except Exception as e:
+            print(f"[OVERLAY] Erro ao inicializar painel AppKit: {e}")
+
+    def update(self, text: str, show: bool = True):
+        def _apply():
+            self._ensure_panel()
+            if not self._panel or not self._label:
+                return
+
+            if show:
+                self._label.setStringValue_(text)
+                if not self._is_visible:
+                    self._panel.orderFront_(None)
+                    self._is_visible = True
+            else:
+                if self._is_visible:
+                    self._panel.orderOut_(None)
+                    self._is_visible = False
+
+        # Garante execução na thread principal do Cocoa
+        if AppKit.NSThread.isMainThread():
+            _apply()
+        else:
+            AppHelper.callAfter(_apply)
+
+    def hide(self):
+        self.update("", show=False)
 
     def start(self):
-        if self._running:
-            return
-        self._running = True
-        self._thread = threading.Thread(target=self._gui_loop, daemon=True)
-        self._thread.start()
+        pass
 
     def stop(self):
-        self._running = False
-        if self._root:
-            try:
-                self._root.after(0, self._root.destroy)
-            except Exception:
-                pass
-        self._root = None
+        self.hide()
 
-    def set_status(self, status: str, detail: Optional[str] = None):
-        with self._lock:
-            self._current_status = status
-            if detail:
-                self._detail_text = detail
-
-    def _gui_loop(self):
-        try:
-            self._root = tk.Tk()
-            self._root.overrideredirect(True)  # Remove barra de título e bordas
-            self._root.attributes("-topmost", True)  # Sempre no topo de todas as janelas
-            self._root.attributes("-alpha", 0.85)    # Leve transparência elegante
-            
-            # Deixa a janela flutuante ignorar eventos de clique (clique passa direto)
-            try:
-                self._root.attributes("-transparent", True)
-            except Exception:
-                pass
-
-            # Posição: Topo central (próximo ao notch) ou canto superior direito
-            # Largura 110px, Altura 32px
-            screen_width = self._root.winfo_screenwidth()
-            window_width = 110
-            window_height = 32
-            pos_x = (screen_width // 2) - (window_width // 2)
-            pos_y = 8  # Bem no topo, próximo ao notch
-
-            self._root.geometry(f"{window_width}x{window_height}+{pos_x}+{pos_y}")
-            self._root.configure(bg="#1e1e2e")
-
-            self._canvas = tk.Canvas(self._root, width=window_width, height=window_height, bg="#1e1e2e", highlightthickness=0)
-            self._canvas.pack(fill="both", expand=True)
-
-            # Desenha fundo arredondado/cápsula via retângulo
-            self._canvas.create_rectangle(2, 2, window_width-2, window_height-2, fill="#11111b", outline="#313244", width=1, tags="bg")
-
-            # Bolinha indicadora
-            self._dot_item = self._canvas.create_oval(12, 10, 24, 22, fill="#22c55e", outline="")
-
-            # Texto de status (REC, IDLE, etc.)
-            self._text_item = self._canvas.create_text(34, 16, anchor="w", text="PRONTO", fill="#cdd6f4", font=("SF Pro Display", 11, "bold"))
-
-            # Loop de animação interno do Tkinter
-            self._update_animation()
-            self._root.mainloop()
-        except Exception as e:
-            print(f"[OVERLAY] Erro no loop gráfico: {e}")
-            self._running = False
-
-    def _update_animation(self):
-        if not self._running or not self._root:
-            return
-
-        with self._lock:
-            st = self._current_status
-            dt = self._detail_text
-
-        # Cores e textos por estado
-        if st == "listening":
-            # Pisca vermelho a cada 500ms
-            current_time = time.time()
-            is_on = int(current_time * 2) % 2 == 0
-            color = "#ef4444" if is_on else "#450a0a"
-            dot_color = "#ef4444" if is_on else "#7f1d1d"
-            text_label = "REC 🔴" if is_on else "REC ⚫"
-            bg_color = "#2a0808" if is_on else "#11111b"
-        elif st == "processing":
-            color = "#eab308"
-            dot_color = "#eab308"
-            text_label = "TRANS…"
-            bg_color = "#221e08"
-        elif st == "no_focus":
-            color = "#f97316"
-            dot_color = "#f97316"
-            text_label = "SEM FOCO"
-            bg_color = "#221308"
-        elif st == "error":
-            color = "#dc2626"
-            dot_color = "#dc2626"
-            text_label = "ERRO"
-            bg_color = "#2a0808"
-        else:
-            color = "#22c55e"
-            dot_color = "#22c55e"
-            text_label = "PRONTO"
-            bg_color = "#11111b"
-
-        try:
-            self._canvas.itemconfig(self._dot_item, fill=dot_color)
-            self._canvas.itemconfig(self._text_item, text=text_label)
-            self._canvas.itemconfig("bg", fill=bg_color)
-        except Exception:
-            pass
-
-        # Agenda próxima atualização em 250ms
-        if self._root:
-            self._root.after(250, self._update_animation)
-
-floating_overlay = FloatingStatusOverlay()
+floating_overlay = NativeFloatingOverlay()

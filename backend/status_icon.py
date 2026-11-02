@@ -126,7 +126,8 @@ class VoiceTranscriptionTrayApp(rumps.App):
         self.menu.add(rumps.MenuItem("Ver Documentação e Atalhos...", callback=self.on_open_docs))
         self.menu.add(rumps.separator)
 
-        # 6. Sair
+        # 6. Reiniciar e Sair
+        self.menu.add(rumps.MenuItem("🔄 Reiniciar Voice Transcription", callback=self.on_restart_clicked))
         self.menu.add(rumps.MenuItem("Encerrar Voice Transcription", callback=self.on_quit_clicked))
 
     def _make_tone_callback(self, tone_key: str):
@@ -282,7 +283,7 @@ class VoiceTranscriptionTrayApp(rumps.App):
     def on_open_web_ui(self, sender):
         import webbrowser
         settings = get_settings()
-        url = f"http://{settings.host}:{settings.port}/"
+        url = f"http://127.0.0.1:{settings.port}/"
         webbrowser.open(url)
 
     def on_open_history_folder(self, sender):
@@ -294,6 +295,22 @@ class VoiceTranscriptionTrayApp(rumps.App):
         if readme_path.exists():
             subprocess.run(["open", str(readme_path)])
 
+    def on_restart_clicked(self, sender):
+        """Reinicia todo o serviço Voice Transcription de forma limpa."""
+        rumps.notification("Voice Transcription", "Reiniciando", "Reiniciando o aplicativo e serviços...")
+        self._anim_stop_event.set()
+        floating_overlay.stop()
+        if self.daemon_ref:
+            self.daemon_ref.stop_listening()
+
+        app_bundle = Path(__file__).resolve().parent.parent / "VoiceTranscription.app"
+        launcher_bin = app_bundle / "Contents" / "MacOS" / "VoiceTranscription"
+        
+        # Mata qualquer processo na porta 8100 e sobe uma nova instância do app
+        cmd = f"kill $(lsof -ti :8100) 2>/dev/null || true; sleep 0.5; '{launcher_bin}' &"
+        subprocess.Popen(["sh", "-c", cmd])
+        rumps.quit_application()
+
     def on_quit_clicked(self, sender):
         self._anim_stop_event.set()
         floating_overlay.stop()
@@ -302,39 +319,61 @@ class VoiceTranscriptionTrayApp(rumps.App):
         rumps.quit_application()
 
     def _animation_loop(self):
-        """Loop executado em background para animar a barra de menus do macOS."""
+        """
+        Loop executado em background para animar a barra de menus do macOS e o badge flutuante.
+        - Dobro da velocidade (0.25s por frame).
+        - Espaçamento constante dos pontos para evitar que o texto balance horizontal ou verticalmente.
+        - Bolinha amarela 🟡 no processamento e vermelha piscante 🔴 no REC.
+        """
         dot_state = True
         dots_count = 0
         while not self._anim_stop_event.is_set():
-            time.sleep(0.5)
+            time.sleep(0.25)
             st = getattr(self, "_current_status", "idle")
             if st == "listening":
-                # Pisca a lampadinha vermelha a cada meio segundo (REC 🔴 e REC ⚫)
+                # Pisca a lampadinha vermelha a cada 0.25s (🔴 REC e ⚫ REC)
                 dot_state = not dot_state
-                self.title = "REC 🔴" if dot_state else "REC ⚫"
+                anim_text = "🔴 REC" if dot_state else "⚫ REC"
+                self.title = anim_text
+                floating_overlay.update(anim_text, show=True)
             elif st == "processing":
-                # Animação de pontos de 0 até 3 e volta a 0
+                # Animação de pontos:
+                # 0 pontos: 3 espaços -> "   "
+                # 1 ponto:  1 ponto + 2 espaços -> ".  "
+                # 2 pontos: 2 pontos + 1 espaço -> ".. "
+                # 3 pontos: 3 pontos + 0 espaço -> "..."
                 dots_count = (dots_count + 1) % 4
-                dots_str = "." * dots_count
-                self.title = f"REC{dots_str}"
+                if dots_count == 0:
+                    dots_padded = "   "
+                elif dots_count == 1:
+                    dots_padded = ".  "
+                elif dots_count == 2:
+                    dots_padded = ".. "
+                else:
+                    dots_padded = "..."
+                
+                anim_text = f"🟡 REC{dots_padded}"
+                self.title = anim_text
+                floating_overlay.update(anim_text, show=True)
             else:
                 if self.title != "🟢":
                     self.title = "🟢"
+                floating_overlay.hide()
 
     def update_status(self, status: str, detail: Optional[str] = None):
-        """Atualiza o ícone e texto do menu bar ao vivo conforme o estado da aplicação."""
+        """Atualiza o estado da aplicação."""
         self._current_status = status
-        self.title = STATUS_ICONS.get(status, "🟢")
         detail_msg = detail or status.capitalize()
         self.status_item.title = f"Status: {detail_msg}"
 
-        # Sincroniza também com o indicador flutuante na tela (Overlay)
-        floating_overlay.set_status(status, detail)
-
         if status == "listening":
             self.record_item.title = "Parar Gravação (Soltar)"
+        elif status == "processing":
+            self.record_item.title = "Processando..."
         else:
             self.record_item.title = "Gravar Agora (Clique)"
+            self.title = STATUS_ICONS.get(status, "🟢")
+            floating_overlay.hide()
 
 def create_tray_app(daemon_ref=None) -> VoiceTranscriptionTrayApp:
     return VoiceTranscriptionTrayApp(daemon_ref=daemon_ref)
