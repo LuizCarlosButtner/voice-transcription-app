@@ -1,4 +1,4 @@
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, List, Iterator
 from AppKit import NSWorkspace
 import ApplicationServices as AS
 
@@ -9,6 +9,53 @@ TEXT_INPUT_ROLES = {
     "AXSearchField",
     "AXComboBox"
 }
+
+# Papéis de "contêiner" que podem ter um input editável descendente (ex.: web views)
+_CONTAINER_ROLES = {"AXWebArea", "AXGroup", "AXScrollArea", "AXWindow", "AXTabGroup"}
+
+
+def _role_of(element) -> str:
+    """Retorna o papel AX do elemento (string), ou 'Unknown' em falha."""
+    try:
+        err, role = AS.AXUIElementCopyAttributeValue(element, AS.kAXRoleAttribute, None)
+        return str(role) if err == 0 and role else "Unknown"
+    except Exception:
+        return "Unknown"
+
+
+def _is_editable(element) -> bool:
+    """True se o elemento é um campo de texto editável (papel ou faixa de seleção)."""
+    role = _role_of(element)
+    if role in TEXT_INPUT_ROLES:
+        return True
+    try:
+        err, _ = AS.AXUIElementCopyAttributeValue(element, AS.kAXSelectedTextRangeAttribute, None)
+        if err == 0:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _children_of(element) -> List[Any]:
+    """Filhos AX diretos do elemento (lista vazia em falha)."""
+    try:
+        err, children = AS.AXUIElementCopyAttributeValue(element, AS.kAXChildrenAttribute, None)
+        if err == 0 and children:
+            return list(children)
+    except Exception:
+        pass
+    return []
+
+
+def _walk_ax(root, max_depth: int = 8) -> Iterator[Any]:
+    """Percorre a árvore AX em largura, devolvendo cada elemento (com teto de profundidade)."""
+    if max_depth <= 0:
+        return
+    for child in _children_of(root):
+        yield child
+        if _role_of(child) in _CONTAINER_ROLES or _children_of(child):
+            yield from _walk_ax(child, max_depth - 1)
 
 def is_accessibility_trusted(prompt: bool = False) -> bool:
     """Verifica se o processo possui permissão de Acessibilidade no macOS."""
@@ -89,3 +136,45 @@ def has_focused_text_input() -> Tuple[bool, str, Optional[str]]:
     except Exception:
         # Qualquer exceção de inspeção: assume foco (permissivo)
         return True, app_name, "AXExceptionAssumed"
+
+
+def find_focused_editable() -> Tuple[bool, str, Optional[Any]]:
+    """
+    Detecção de foco ESTRITA (usada pelo pipeline de inserção).
+
+    Retorna (is_editable_focused, app_name, focused_element).
+
+    Diferente de `has_focused_text_input` (permissiva), aqui só retorna True
+    quando o elemento focado é EXPLICITAMENTE editável (TEXT_INPUT_ROLES ou com
+    AXSelectedTextRange). Em indeterminação de AX (Chrome/Electron = -25212,
+    papel genérico sem descendente editável), retorna False — o que dispara a
+    "caça" de input do Jeito 1 e, na falta dele, o "mouse engordando" do Jeito 2.
+    """
+    app_info = get_frontmost_app()
+    app_name = app_info["name"]
+    pid = app_info["pid"]
+
+    if pid <= 0:
+        return False, app_name, None
+
+    if not is_accessibility_trusted(prompt=False):
+        return False, app_name, None
+
+    try:
+        app_ax = AS.AXUIElementCreateApplication(pid)
+        err, focused_elem = AS.AXUIElementCopyAttributeValue(app_ax, AS.kAXFocusedUIElementAttribute, None)
+        if err != 0 or not focused_elem:
+            return False, app_name, None
+
+        if _is_editable(focused_elem):
+            return True, app_name, focused_elem
+
+        # Foco em um contêiner (web view / grupo): confirma se há um campo
+        # editável descendente realmente focado.
+        for elem in _walk_ax(focused_elem, max_depth=6):
+            if _is_editable(elem):
+                return True, app_name, elem
+
+        return False, app_name, focused_elem
+    except Exception:
+        return False, app_name, None

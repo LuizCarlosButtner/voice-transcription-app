@@ -11,9 +11,10 @@ from history import history_manager
 from recorder import recorder
 from transcriber import transcriber
 from rewriter import rewriter
-from active_app import has_focused_text_input, get_frontmost_app
+from active_app import has_focused_text_input, find_focused_editable, get_frontmost_app
 from inserter import inserter
 from prompt_modal import show_input_selection_prompt
+from input_hunter import hunt_visible_input, focus_element
 
 # Tempo limite para diferenciar um toque curto (tap) de segurar (hold)
 TAP_THRESHOLD_SEC = 0.35
@@ -236,11 +237,28 @@ class VoiceDaemon:
             text_final = rw_res.get("text", text_raw).strip()
             grammar_applied = rw_res.get("grammar_fixed", False)
 
-            # 4. Inserção contínua no cursor (Append)
-            # SEMPRE tenta colar no cursor primeiro
-            inserted = inserter.insert_text(text_final)
+            # 4. Inserção contínua (com Jeito 1: Caça automática se não houver cursor/foco ativo)
+            inserted = False
+            has_strict_focus, app_name, focused_elem = find_focused_editable()
 
-            # Se a colagem falhou, abre o modal de assistência
+            if has_strict_focus:
+                # Há um campo explicitamente focado: cola no cursor normalmente
+                inserted = inserter.insert_text(text_final)
+            elif settings.auto_hunt_input:
+                # Jeito 1: Caça o input visível no app (ex: WhatsApp, DSH, chats)
+                target_input = hunt_visible_input()
+                if target_input is not None:
+                    focused_ok = focus_element(target_input)
+                    if focused_ok:
+                        time.sleep(0.08)
+                    inserted = inserter.insert_text(text_final)
+                else:
+                    # Se a caça não encontrou nada visível, tenta paste cego no cursor
+                    inserted = inserter.insert_text(text_final)
+            else:
+                inserted = inserter.insert_text(text_final)
+
+            # Se a colagem falhou e não há foco
             if not inserted:
                 inserted = show_input_selection_prompt(text_final)
 

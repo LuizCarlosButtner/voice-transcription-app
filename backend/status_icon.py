@@ -93,6 +93,11 @@ class VoiceTranscriptionTrayApp(rumps.App):
         self.append_item.state = 1 if settings.append_at_cursor else 0
         self.settings_menu.add(self.append_item)
 
+        # Caçar Input Automaticamente (Jeito 1)
+        self.hunt_item = rumps.MenuItem("Caçar Input Visível se Sem Foco", callback=self.on_toggle_hunt)
+        self.hunt_item.state = 1 if settings.auto_hunt_input else 0
+        self.settings_menu.add(self.hunt_item)
+
         # Iniciar com o macOS
         self.autostart_item = rumps.MenuItem("Iniciar Automaticamente no Login", callback=self.on_toggle_autostart)
         self.autostart_item.state = 1 if is_autostart_installed() else 0
@@ -283,6 +288,12 @@ class VoiceTranscriptionTrayApp(rumps.App):
         sender.state = 1 if new_state else 0
         update_settings({"append_at_cursor": new_state})
 
+    def on_toggle_hunt(self, sender):
+        new_state = not bool(sender.state)
+        sender.state = 1 if new_state else 0
+        update_settings({"auto_hunt_input": new_state})
+        rumps.notification("Voice Transcription", "Caça de Input", "Ativada" if new_state else "Desativada")
+
     def on_toggle_autostart(self, sender):
         new_state = not bool(sender.state)
         if new_state:
@@ -344,12 +355,12 @@ class VoiceTranscriptionTrayApp(rumps.App):
             time.sleep(0.25)
             st = getattr(self, "_current_status", "idle")
             if st == "listening":
-                # Pisca a lampadinha vermelha a cada 0.25s (🔴 REC e ⚫ REC)
+                # Pisca a lampadinha vermelha a cada 0.25s (🔴 REC e ⚫ REC) na barra de tarefas
                 dot_state = not dot_state
                 anim_text = "🔴 REC" if dot_state else "⚫ REC"
                 self.title = anim_text
-                # Overlay flutuante: apenas a bolinha vermelha piscando discretamente
-                floating_overlay.update_dot("🔴" if dot_state else "", show=True)
+                # Overlay flutuante na parte inferior (5.5% acima da base): orbe de IA + wave + texto piscando
+                floating_overlay.set_mode("listening")
             elif st == "processing":
                 # Animação de onda viajante nas reticências com largura 100% fixa:
                 # Sempre 3 posições fixas, onde o ponto que "apaga" vira espaço em branco (' '):
@@ -370,8 +381,8 @@ class VoiceTranscriptionTrayApp(rumps.App):
                 dots_count += 1
                 anim_text = f"🟡 REC {dots_wave}"
                 self.title = anim_text
-                # Overlay flutuante: bolinha amarela enquanto transcreve
-                floating_overlay.update_dot("🟡", show=True)
+                # Overlay flutuante: spinner e ondas de carregamento enquanto transcreve
+                floating_overlay.set_mode("processing")
             else:
                 if self.title != "🟢":
                     self.title = "🟢"
@@ -385,8 +396,10 @@ class VoiceTranscriptionTrayApp(rumps.App):
 
         if status == "listening":
             self.record_item.title = "Parar Gravação (Soltar)"
+            floating_overlay.set_mode("listening")
         elif status == "processing":
             self.record_item.title = "Processando..."
+            floating_overlay.set_mode("processing")
         else:
             self.record_item.title = "Gravar Agora (Clique)"
             self.title = STATUS_ICONS.get(status, "🟢")

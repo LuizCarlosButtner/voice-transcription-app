@@ -39,6 +39,9 @@ class Settings(BaseModel):
     # Inserção de texto
     append_at_cursor: bool = Field(default=True, description="Inserir no cursor atual sem apagar seleção a menos que selecionado")
     insertion_method: str = Field(default="clipboard_paste", description="clipboard_paste ou keystroke")
+    auto_hunt_input: bool = Field(default=True, description="Se não houver campo com cursor ativo, caça o input editável mais visível na janela")
+    mouse_wait_enabled: bool = Field(default=False, description="Branch de animação do mouse: pulsar e aguardar clique antes de colar")
+    mouse_wait_timeout_seconds: int = Field(default=60, description="Tempo limite em segundos para o modo mouse aguardar clique")
     
     # Backup por Chunks e Proteção Anti-Perda
     chunk_backup_enabled: bool = Field(default=True, description="Se ativo, grava chunks em disco continuamente para evitar perda de fala")
