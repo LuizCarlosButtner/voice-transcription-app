@@ -12,6 +12,49 @@ DTYPE = 'int16'
 # Amplitude (pico, int16) acima da qual consideramos que há fala (evita ruído de fundo)
 SILENCE_SPEECH_THRESHOLD = 400
 
+# Dispositivos virtuais que NUNCA devem ser usados para captura de voz
+# (capturam silêncio: Voicemod, BlackHole, Soundflower, Loopback etc).
+_VIRTUAL_DEVICE_HINTS = ("voicemod", "blackhole", "soundflower", "loopback", "virtual",
+                         "capture", "aggregate", "multi-output", "multi-output device")
+# Nomes que indicam microfone real (prioridade na seleção automática)
+_REAL_MIC_HINTS = ("microfone", "mic", "built-in", "internal", "macbook", "usb audio", "headset")
+
+
+def _pick_input_device():
+    """Escolhe o melhor dispositivo de entrada real, pulando virtuais/garbled.
+
+    Retorna o índice do device ou None (usa o default do sistema). Quando o default
+    é um device virtual (ex.: Voicemod) ele captura silêncio, então preferimos um
+    microfone real reconhecível.
+    """
+    try:
+        import sounddevice as sd
+        devices = sd.query_devices()
+    except Exception:
+        return None
+
+    candidates = []
+    for idx, d in enumerate(devices):
+        if d.get("max_input_channels", 0) <= 0:
+            continue
+        name = (d.get("name") or "").lower()
+        # Pula nomes "garbled" (só '?') e dispositivos virtuais conhecidos
+        if not name.strip("? "):
+            continue
+        if any(h in name for h in _VIRTUAL_DEVICE_HINTS):
+            continue
+        candidates.append((idx, name))
+
+    if not candidates:
+        return None
+
+    # Prioriza microfone real reconhecível
+    for idx, name in candidates:
+        if any(h in name for h in _REAL_MIC_HINTS):
+            return idx
+    # Caso contrário, usa o primeiro input não-virtual
+    return candidates[0][0]
+
 def save_audio_file(audio_data: np.ndarray, destination_path: Path, sample_rate: int = SAMPLE_RATE) -> Path:
     """
     Grava áudio em formato otimizado e leve (OGG Vorbis via soundfile).
@@ -90,6 +133,7 @@ class AudioRecorder:
 
         # Detecção de silêncio para auto-parada
         self._last_speech_time: float = 0.0
+        self.current_level: float = 0.0
         self.on_auto_stop: Optional[callable] = None  # callback chamado quando há silêncio prolongado
 
     @property
@@ -116,6 +160,15 @@ class AudioRecorder:
                 # Atualiza o marcador de fala quando o pico supera o limiar
                 try:
                     peak = float(np.max(np.abs(indata)))
+                    # Normalização dinâmica mais sensível e responsiva:
+                    # Falando baixinho já gera ondas visíveis (~400-1200), falando alto atinge 1.0 (~3500+)
+                    raw_lvl = min(1.0, max(0.0, (peak - 120.0) / 3200.0))
+                    # Ataque rápido (sobe na hora) e decaimento suave (não corta seco)
+                    if raw_lvl > self.current_level:
+                        self.current_level = (self.current_level * 0.25) + (raw_lvl * 0.75)
+                    else:
+                        self.current_level = (self.current_level * 0.70) + (raw_lvl * 0.30)
+
                     if peak >= SILENCE_SPEECH_THRESHOLD:
                         self._last_speech_time = time.time()
                 except Exception:
@@ -218,10 +271,12 @@ class AudioRecorder:
 
             try:
                 import sounddevice as sd
+                device = _pick_input_device()
                 self._stream = sd.InputStream(
                     samplerate=self.sample_rate,
                     channels=self.channels,
                     dtype=DTYPE,
+                    device=device,
                     callback=self._audio_callback
                 )
                 self._stream.start()
