@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 set -e
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-APP_ROOT="/Users/luizcarlospereira/programas/geral/voice-transcription-app"
-VENV_PYTHON="$APP_ROOT/venv/bin/python"
-MAIN_SCRIPT="$APP_ROOT/backend/main.py"
+DIRETORIO_EXECUTAVEL="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+RAIZ_CANDIDATA="$( cd "$DIRETORIO_EXECUTAVEL/../../.." 2>/dev/null && pwd || true )"
+if [ -x "$RAIZ_CANDIDATA/venv/bin/python" ] && [ -f "$RAIZ_CANDIDATA/backend/main.py" ]; then
+    RAIZ_APLICATIVO="$RAIZ_CANDIDATA"
+else
+    RAIZ_APLICATIVO="/Users/luizcarlospereira/programas/voice-transcription-app"
+fi
+
+PYTHON_AMBIENTE="$RAIZ_APLICATIVO/venv/bin/python"
+SCRIPT_PRINCIPAL="$RAIZ_APLICATIVO/backend/main.py"
 
 # Carrega variáveis de ambiente do usuário se existirem
 [ -f "$HOME/.zshenv" ] && source "$HOME/.zshenv" 2>/dev/null || true
 [ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null || true
 [ -f "$HOME/.dsh/.env" ] && set -a && source "$HOME/.dsh/.env" && set +a 2>/dev/null || true
 
-export PYTHONPATH="$APP_ROOT/backend:$PYTHONPATH"
-cd "$APP_ROOT"
+export PYTHONPATH="$RAIZ_APLICATIVO/backend:$PYTHONPATH"
+cd "$RAIZ_APLICATIVO"
 
-exec "$VENV_PYTHON" "$MAIN_SCRIPT" "$@"
+exec "$PYTHON_AMBIENTE" "$SCRIPT_PRINCIPAL" "$@"

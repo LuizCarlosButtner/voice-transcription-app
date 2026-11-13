@@ -1,12 +1,12 @@
-import os
-import stat
 import shutil
+import stat
 from pathlib import Path
 
-APP_NAME = "VoiceTranscription.app"
-BUNDLE_ID = "com.luizcarlos.voicetranscription"
+NOME_APLICATIVO = "VoiceTranscription.app"
+IDENTIFICADOR_PACOTE = "com.luizcarlos.voicetranscription"
+RAIZ_PROJETO = Path(__file__).resolve().parent.parent
 
-INFO_PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+MODELO_INFO_PLIST = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -15,7 +15,7 @@ INFO_PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.luizcarlos.voicetranscription</string>
+    <string>{IDENTIFICADOR_PACOTE}</string>
     <key>CFBundleName</key>
     <string>VoiceTranscription</string>
     <key>CFBundleDisplayName</key>
@@ -38,63 +38,80 @@ INFO_PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 """
 
-LAUNCHER_SCRIPT_TEMPLATE = """#!/usr/bin/env bash
+
+def gerar_script_inicializacao(raiz_projeto: Path | None = None) -> str:
+    """Gera o conteúdo do script de inicialização do pacote .app para macOS."""
+    diretorio_raiz = (raiz_projeto or RAIZ_PROJETO).resolve()
+    return f"""#!/usr/bin/env bash
 set -e
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-APP_ROOT="/Users/luizcarlospereira/programas/geral/voice-transcription-app"
-VENV_PYTHON="$APP_ROOT/venv/bin/python"
-MAIN_SCRIPT="$APP_ROOT/backend/main.py"
+DIRETORIO_EXECUTAVEL="$( cd "$( dirname "${{BASH_SOURCE[0]}}" )" && pwd )"
+RAIZ_CANDIDATA="$( cd "$DIRETORIO_EXECUTAVEL/../../.." 2>/dev/null && pwd || true )"
+if [ -x "$RAIZ_CANDIDATA/venv/bin/python" ] && [ -f "$RAIZ_CANDIDATA/backend/main.py" ]; then
+    RAIZ_APLICATIVO="$RAIZ_CANDIDATA"
+else
+    RAIZ_APLICATIVO="{diretorio_raiz}"
+fi
+
+PYTHON_AMBIENTE="$RAIZ_APLICATIVO/venv/bin/python"
+SCRIPT_PRINCIPAL="$RAIZ_APLICATIVO/backend/main.py"
 
 # Carrega variáveis de ambiente do usuário se existirem
 [ -f "$HOME/.zshenv" ] && source "$HOME/.zshenv" 2>/dev/null || true
 [ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null || true
 [ -f "$HOME/.dsh/.env" ] && set -a && source "$HOME/.dsh/.env" && set +a 2>/dev/null || true
 
-export PYTHONPATH="$APP_ROOT/backend:$PYTHONPATH"
-cd "$APP_ROOT"
+export PYTHONPATH="$RAIZ_APLICATIVO/backend:$PYTHONPATH"
+cd "$RAIZ_APLICATIVO"
 
-exec "$VENV_PYTHON" "$MAIN_SCRIPT" "$@"
+exec "$PYTHON_AMBIENTE" "$SCRIPT_PRINCIPAL" "$@"
 """
 
-def build_app_bundle(destination_dir: Path):
-    app_dir = destination_dir / APP_NAME
-    contents_dir = app_dir / "Contents"
-    macos_dir = contents_dir / "MacOS"
-    resources_dir = contents_dir / "Resources"
 
-    # Limpa build anterior se existir
-    if app_dir.exists():
-        shutil.rmtree(app_dir)
+def construir_pacote_app(diretorio_destino: Path) -> Path:
+    """Constrói o pacote de aplicativo macOS (.app) no diretório de destino."""
+    diretorio_app = diretorio_destino / NOME_APLICATIVO
+    diretorio_conteudo = diretorio_app / "Contents"
+    diretorio_macos = diretorio_conteudo / "MacOS"
+    diretorio_recursos = diretorio_conteudo / "Resources"
 
-    macos_dir.mkdir(parents=True, exist_ok=True)
-    resources_dir.mkdir(parents=True, exist_ok=True)
+    # Limpa pacote anterior se existir
+    if diretorio_app.exists():
+        shutil.rmtree(diretorio_app)
 
-    # 1. Info.plist
-    with open(contents_dir / "Info.plist", "w", encoding="utf-8") as f:
-        f.write(INFO_PLIST_TEMPLATE)
+    diretorio_macos.mkdir(parents=True, exist_ok=True)
+    diretorio_recursos.mkdir(parents=True, exist_ok=True)
 
-    # 2. PkgInfo
-    with open(contents_dir / "PkgInfo", "w", encoding="utf-8") as f:
-        f.write("APPL????")
+    # 1. Grava o Info.plist
+    with open(diretorio_conteudo / "Info.plist", "w", encoding="utf-8") as arquivo_plist:
+        arquivo_plist.write(MODELO_INFO_PLIST)
 
-    # 3. Executável launcher
-    launcher_file = macos_dir / "VoiceTranscription"
-    with open(launcher_file, "w", encoding="utf-8") as f:
-        f.write(LAUNCHER_SCRIPT_TEMPLATE)
-    
-    # Dá permissão de execução (chmod +x)
-    launcher_file.chmod(launcher_file.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    # 2. Grava o PkgInfo
+    with open(diretorio_conteudo / "PkgInfo", "w", encoding="utf-8") as arquivo_pkginfo:
+        arquivo_pkginfo.write("APPL????")
 
-    # 4. Copia o AppIcon.icns
-    icns_source = Path(__file__).resolve().parent / "AppIcon.icns"
-    if icns_source.exists():
-        shutil.copy(icns_source, resources_dir / "AppIcon.icns")
+    # 3. Cria o executável de inicialização
+    arquivo_inicializador = diretorio_macos / "VoiceTranscription"
+    with open(arquivo_inicializador, "w", encoding="utf-8") as arquivo_script:
+        arquivo_script.write(gerar_script_inicializacao(RAIZ_PROJETO))
 
-    print(f"[OK] {APP_NAME} empacotado com sucesso em: {app_dir}")
-    return app_dir
+    # Concede permissão de execução (chmod +x)
+    arquivo_inicializador.chmod(
+        arquivo_inicializador.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    )
+
+    # 4. Copia o ícone AppIcon.icns
+    origem_icone = Path(__file__).resolve().parent / "AppIcon.icns"
+    if origem_icone.exists():
+        shutil.copy(origem_icone, diretorio_recursos / "AppIcon.icns")
+
+    print(f"[OK] {NOME_APLICATIVO} empacotado com sucesso em: {diretorio_app}")
+    return diretorio_app
+
+
+# Apelido mantido para compatibilidade com chamadas legadas externas
+build_app_bundle = construir_pacote_app
+
 
 if __name__ == "__main__":
-    pkg_dir = Path(__file__).resolve().parent
-    project_root = pkg_dir.parent
-    build_app_bundle(project_root)
+    construir_pacote_app(RAIZ_PROJETO)
