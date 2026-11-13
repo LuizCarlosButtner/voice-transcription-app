@@ -3,186 +3,331 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
   <title>Voice Transcription — Painel de Controle</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎙️</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><circle cx=%2216%22 cy=%2216%22 r=%2214%22 fill=%22%23dc2626%22 fill-opacity=%220.22%22/><circle cx=%2216%22 cy=%2216%22 r=%228%22 fill=%22%23ef4444%22/></svg>">
   <link rel="stylesheet" href="css/style.css">
 </head>
-<body class="dark-theme">
-  <!-- Topbar / Navbar -->
+<body class="tema-escuro">
+  <a href="#conteudo-principal" class="atalho-conteudo visualmente-oculto">Pular para o conteúdo principal</a>
+
+  <!-- Cabeçalho Principal estilo macOS Sequoia -->
   <header class="app-header">
     <div class="header-container">
       <div class="brand">
-        <div class="brand-icon-pulse">
-          <span class="mic-glyph">🎙️</span>
+        <div class="brand-icon-pulse" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+          </svg>
         </div>
         <div class="brand-text">
-          <h1>Voice Transcription <span class="badge badge-version">v1.0.0</span></h1>
-          <p class="subtitle">Ditado Universal com Ajuste de Tom para macOS</p>
+          <h1>Voice Transcription <span class="badge badge-version">v2.0</span></h1>
+          <p class="subtitle">Ditado Universal Nativo com Ajuste de Tom &amp; Caça Inteligente de Input</p>
         </div>
       </div>
 
       <div class="header-status">
         <div class="status-pill" id="daemon-connection-pill">
-          <span class="status-dot dot-online"></span>
+          <span class="status-dot dot-online" id="daemon-status-dot" aria-hidden="true"></span>
           <span class="status-label" id="daemon-status-text">Conectando...</span>
         </div>
-        <div class="shortcut-pill" title="Atalho global do macOS">
+        <div class="shortcut-pill" title="Atalho global configurado no macOS">
           <span class="shortcut-key" id="active-hotkey-badge">⌥ Option</span>
-          <span class="shortcut-desc">Push-to-Talk</span>
+          <span class="shortcut-desc" id="active-mode-short-label">Híbrido</span>
         </div>
-        <button class="btn btn-icon" id="btn-refresh-all" title="Atualizar dados agora">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+        <button type="button" class="btn btn-icon" id="btn-refresh-all" aria-label="Sincronizar dados agora" title="Sincronizar dados agora">
+          <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+            <path d="M3 3v5h5"/>
+            <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+            <path d="M16 16h5v5"/>
           </svg>
         </button>
       </div>
     </div>
   </header>
 
-  <!-- Main Container -->
-  <main class="main-container">
-    <!-- Row: Metrics & Health Cards -->
-    <section class="metrics-grid">
+  <!-- Conteúdo Principal -->
+  <main class="main-container" id="conteudo-principal" tabindex="-1">
+    <!-- Linha 1: Indicadores Rápidos -->
+    <section class="metrics-grid" aria-label="Resumo operacional">
       <div class="metric-card">
         <div class="metric-header">
           <span class="metric-title">Provedor Primário</span>
-          <span class="metric-icon">⚡</span>
+          <svg aria-hidden="true" class="metric-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+          </svg>
         </div>
         <div class="metric-value" id="metric-provider">Groq Cloud</div>
-        <div class="metric-sub" id="metric-provider-sub">Whisper-large-v3-turbo (Nuvem)</div>
+        <div class="metric-sub" id="metric-provider-sub">whisper-large-v3-turbo</div>
       </div>
 
       <div class="metric-card">
         <div class="metric-header">
-          <span class="metric-title">Tom Ativo</span>
-          <span class="metric-icon">🎭</span>
+          <span class="metric-title">Tom de Voz Ativo</span>
+          <svg aria-hidden="true" class="metric-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 20h9"/>
+            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+          </svg>
         </div>
         <div class="metric-value highlight" id="metric-active-tone">Verbatim</div>
-        <div class="metric-sub">Sem filtro, palavras originais</div>
+        <div class="metric-sub" id="metric-tone-sub">Fiel às palavras originais</div>
       </div>
 
       <div class="metric-card">
         <div class="metric-header">
           <span class="metric-title">Permissões macOS</span>
-          <span class="metric-icon">🛡️</span>
+          <svg aria-hidden="true" class="metric-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
         </div>
         <div class="metric-tags">
-          <span class="badge" id="badge-perm-mic">Microfone: ...</span>
-          <span class="badge" id="badge-perm-ax">Acessibilidade: ...</span>
+          <span class="badge" id="badge-perm-mic">Mic: ...</span>
+          <span class="badge" id="badge-perm-ax">AX: ...</span>
+          <span class="badge" id="badge-perm-input">Teclado: ...</span>
         </div>
-        <div class="metric-sub" id="metric-front-app">App em foco: Detectando...</div>
+        <div class="metric-sub" id="metric-front-app">App ativo: Detectando...</div>
       </div>
 
       <div class="metric-card">
         <div class="metric-header">
-          <span class="metric-title">Estatísticas</span>
-          <span class="metric-icon">📊</span>
+          <span class="metric-title">Sessões Gravadas</span>
+          <svg aria-hidden="true" class="metric-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
         </div>
         <div class="metric-value" id="metric-total-count">0</div>
-        <div class="metric-sub" id="metric-stats-detail">0 sucessos · 0 erros</div>
+        <div class="metric-sub" id="metric-stats-detail">0 enviados · 0 erros</div>
       </div>
     </section>
 
-    <!-- Studio Hero: Record & Tone Switcher -->
-    <section class="studio-card">
+    <!-- Linha 2: Protocolo de Inicialização & Saúde do Sistema -->
+    <section class="diagnostico-card" id="painel-diagnostico-sistema" aria-labelledby="titulo-diagnostico">
+      <div class="diagnostico-cabecalho">
+        <div class="diagnostico-titulo-bloco">
+          <div class="diagnostico-linha-titulo">
+            <h2 id="titulo-diagnostico">Protocolo de Inicialização &amp; Saúde do Sistema</h2>
+            <span class="badge badge-neutral" id="diagnostico-resumo-badge">Verificando...</span>
+          </div>
+          <p class="section-desc" id="diagnostico-meta-tempo">Autoteste das 5 camadas críticas do serviço local no macOS.</p>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" id="btn-executar-autoteste">
+          <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
+          <span>Executar Autoteste Agora</span>
+        </button>
+      </div>
+
+      <div class="diagnostico-grade" id="grade-etapas-diagnostico" role="list">
+        <div class="etapa-saude-item" id="etapa-armazenamento_banco" role="listitem">
+          <div class="etapa-topo">
+            <span class="etapa-indicador" aria-hidden="true"></span>
+            <span class="etapa-nome">Armazenamento &amp; Banco</span>
+          </div>
+          <p class="etapa-detalhe">Aguardando leitura do SQLite...</p>
+        </div>
+
+        <div class="etapa-saude-item" id="etapa-chaves_provedores" role="listitem">
+          <div class="etapa-topo">
+            <span class="etapa-indicador" aria-hidden="true"></span>
+            <span class="etapa-nome">Chaves &amp; Provedores</span>
+          </div>
+          <p class="etapa-detalhe">Verificando credenciais STT/LLM...</p>
+        </div>
+
+        <div class="etapa-saude-item" id="etapa-permissoes_macos" role="listitem">
+          <div class="etapa-topo">
+            <span class="etapa-indicador" aria-hidden="true"></span>
+            <span class="etapa-nome">Permissões macOS</span>
+          </div>
+          <p class="etapa-detalhe">Microfone, AX e Entrada...</p>
+        </div>
+
+        <div class="etapa-saude-item" id="etapa-subsistema_audio" role="listitem">
+          <div class="etapa-topo">
+            <span class="etapa-indicador" aria-hidden="true"></span>
+            <span class="etapa-nome">Subsistema de Áudio</span>
+          </div>
+          <p class="etapa-detalhe">Sondando microfone físico...</p>
+        </div>
+
+        <div class="etapa-saude-item" id="etapa-escutador_atalho" role="listitem">
+          <div class="etapa-topo">
+            <span class="etapa-indicador" aria-hidden="true"></span>
+            <span class="etapa-nome">Escutador de Atalho</span>
+          </div>
+          <p class="etapa-detalhe">Validando listener global...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Linha 3: Estúdio de Voz, Modos de Acionamento & Brilho Vermelho Difuso -->
+    <section class="studio-card" aria-labelledby="titulo-estudio">
       <div class="studio-header">
         <div>
-          <h2>Estúdio de Voz & Tom</h2>
-          <p class="section-desc">Selecione o tom desejado na hora e dite usando o atalho global ou o microfone interativo.</p>
+          <h2 id="titulo-estudio">Estúdio de Voz &amp; Estilo</h2>
+          <p class="section-desc">Escolha o modo de acionamento e o tom. O visualizador abaixo reage em tempo real tanto ao navegador quanto à tecla global do macOS.</p>
         </div>
         <div class="mode-indicator" id="mode-indicator-badge">
-          Modo: <strong>Push-and-Hold (Segure para falar)</strong>
+          Modo ativo: <strong>Híbrido (Segurar ou Toque Rápido)</strong>
         </div>
       </div>
 
-      <!-- Tone Chips Grid -->
-      <div class="tones-grid" id="tones-selector-grid">
-        <button class="tone-card active" data-tone="verbatim">
-          <div class="tone-card-top">
-            <span class="tone-emoji">🎯</span>
-            <span class="tone-check">✓ Ativo</span>
-          </div>
-          <div class="tone-title">Verbatim</div>
-          <div class="tone-tag">Sem Filtro</div>
-          <p class="tone-desc">Usa suas palavras exatas sem censura (gírias e palavrões inclusos), com pontuação e maiúsculas automáticas.</p>
-        </button>
+      <!-- Seletor em Destaque dos 3 Modos de Acionamento -->
+      <div class="bloco-modos-estudio" role="group" aria-labelledby="rotulo-modos-estudio">
+        <div class="cabecalho-subsecao">
+          <span class="rotulo-subsecao" id="rotulo-modos-estudio">Modo de Acionamento Global</span>
+          <span class="dica-subsecao">Sincronizado instantaneamente com o atalho do sistema</span>
+        </div>
+        <div class="grade-modos-acionamento" id="seletor-modo-estudio">
+          <button type="button" class="cartao-modo-acionamento ativo" data-modo="hibrido" aria-pressed="true">
+            <div class="cartao-modo-topo">
+              <span class="cartao-modo-titulo">Híbrido</span>
+              <span class="cartao-modo-selo">Recomendado</span>
+            </div>
+            <p class="cartao-modo-desc">Segure para falar e solte para enviar; ou dê um toque rápido (&lt;0.35s) para travar ligado.</p>
+          </button>
 
-        <button class="tone-card" data-tone="colloquial">
-          <div class="tone-card-top">
-            <span class="tone-emoji">☕</span>
-            <span class="tone-check">✓ Ativo</span>
-          </div>
-          <div class="tone-title">Coloquial</div>
-          <div class="tone-tag">Natural & Solto</div>
-          <p class="tone-desc">Reaproveita seu vocabulário de forma suave, espontânea e descontraída para chats e mensagens informais.</p>
-        </button>
+          <button type="button" class="cartao-modo-acionamento" data-modo="segurar" aria-pressed="false">
+            <div class="cartao-modo-topo">
+              <span class="cartao-modo-titulo">Segurar para Falar</span>
+              <span class="cartao-modo-selo">Push-and-Hold</span>
+            </div>
+            <p class="cartao-modo-desc">Grava estritamente enquanto a tecla estiver pressionada e envia sempre ao soltar.</p>
+          </button>
 
-        <button class="tone-card" data-tone="semiformal">
-          <div class="tone-card-top">
-            <span class="tone-emoji">💼</span>
-            <span class="tone-check">✓ Ativo</span>
-          </div>
-          <div class="tone-title">Semiformal</div>
-          <div class="tone-tag">Profissional Diário</div>
-          <p class="tone-desc">Equilíbrio perfeito de clareza, respeito e objetividade para Slack, e-mails de rotina e notas de trabalho.</p>
-        </button>
-
-        <button class="tone-card" data-tone="formal">
-          <div class="tone-card-top">
-            <span class="tone-emoji">🏛️</span>
-            <span class="tone-check">✓ Ativo</span>
-          </div>
-          <div class="tone-title">Formal</div>
-          <div class="tone-tag">Polido & Refinado</div>
-          <p class="tone-desc">Eleva o registro formal mantendo o sentido original, sem clichês vazios ou polidez artificial.</p>
-        </button>
+          <button type="button" class="cartao-modo-acionamento" data-modo="alternar" aria-pressed="false">
+            <div class="cartao-modo-topo">
+              <span class="cartao-modo-titulo">Toque para Alternar</span>
+              <span class="cartao-modo-selo">Liga / Desliga</span>
+            </div>
+            <p class="cartao-modo-desc">1º toque inicia a gravação contínua com mãos livres; 2º toque encerra e insere.</p>
+          </button>
+        </div>
       </div>
 
-      <!-- Blue Translator Feature Bar -->
+      <!-- Grade de Tons de Voz -->
+      <div class="bloco-tons-estudio">
+        <div class="cabecalho-subsecao">
+          <span class="rotulo-subsecao">Tom da Escrita</span>
+          <span class="dica-subsecao">Reescrita contextual mantendo sua intenção original</span>
+        </div>
+        <div class="tones-grid" id="tones-selector-grid">
+          <button type="button" class="tone-card active" data-tone="verbatim" aria-pressed="true">
+            <div class="tone-card-top">
+              <span class="tone-icon-box" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+              </span>
+              <span class="tone-check">Ativo</span>
+            </div>
+            <div class="tone-title">Verbatim</div>
+            <div class="tone-tag">Sem Filtro</div>
+            <p class="tone-desc">Preserva suas palavras exatas sem censura, aplicando pontuação natural e maiúsculas.</p>
+          </button>
+
+          <button type="button" class="tone-card" data-tone="colloquial" aria-pressed="false">
+            <div class="tone-card-top">
+              <span class="tone-icon-box" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+              </span>
+              <span class="tone-check">Ativo</span>
+            </div>
+            <div class="tone-title">Coloquial</div>
+            <div class="tone-tag">Natural &amp; Fluido</div>
+            <p class="tone-desc">Suaviza hesitações de fala mantendo ritmo espontâneo para conversas e mensagens rápidas.</p>
+          </button>
+
+          <button type="button" class="tone-card" data-tone="semiformal" aria-pressed="false">
+            <div class="tone-card-top">
+              <span class="tone-icon-box" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                </svg>
+              </span>
+              <span class="tone-check">Ativo</span>
+            </div>
+            <div class="tone-title">Semiformal</div>
+            <div class="tone-tag">Profissional Diário</div>
+            <p class="tone-desc">Clareza, objetividade e cordialidade ideais para Slack, PRs, e-mails de equipe e notas.</p>
+          </button>
+
+          <button type="button" class="tone-card" data-tone="formal" aria-pressed="false">
+            <div class="tone-card-top">
+              <span class="tone-icon-box" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                </svg>
+              </span>
+              <span class="tone-check">Ativo</span>
+            </div>
+            <div class="tone-title">Formal</div>
+            <div class="tone-tag">Polido &amp; Executivo</div>
+            <p class="tone-desc">Estrutura culta e refinada para documentos oficiais, relatórios e comunicações externas.</p>
+          </button>
+        </div>
+      </div>
+
+      <!-- Barra de Tradução Instantânea PT -> EN -->
       <div class="translation-feature-bar" id="translation-feature-bar">
         <div class="translation-info">
-          <div class="translation-icon">🌐</div>
+          <div class="translation-icon-svg" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="2" y1="12" x2="22" y2="12"/>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+          </div>
           <div>
-            <div class="translation-title">Tradução Instantânea para Inglês (PT ➔ EN)</div>
-            <div class="translation-subtitle">Você fala em português, o aplicativo transcreve e digita diretamente em inglês no cursor do app selecionado.</div>
+            <label for="toggle-translate-en" class="translation-title">Tradução Instantânea para Inglês (PT ➔ EN)</label>
+            <p class="translation-subtitle" id="descricao-traducao">Fale naturalmente em português e insira o texto diretamente traduzido para inglês no cursor.</p>
           </div>
         </div>
         <div class="translation-switch-wrapper">
-          <label class="blue-switch" id="switch-translate-label" title="Ativar ou desativar tradução direta para inglês">
-            <input type="checkbox" id="toggle-translate-en">
-            <span class="blue-slider"></span>
+          <label class="blue-switch" for="toggle-translate-en">
+            <input type="checkbox" id="toggle-translate-en" name="translate_to_english" aria-describedby="descricao-traducao">
+            <span class="blue-slider" aria-hidden="true"></span>
           </label>
           <span class="switch-status-text" id="translate-status-text">Desativado</span>
         </div>
       </div>
 
-      <!-- Live Mic / Recording Center -->
+      <!-- Centro de Captura e Brilho Vermelho Difuso -->
       <div class="recording-center">
         <div class="mic-button-wrapper">
-          <canvas id="visualizer-canvas" class="visualizer-canvas" width="280" height="280"></canvas>
-          <button class="mic-hero-button" id="btn-hero-mic" title="Clique para Gravar ou Testar pelo Navegador">
-            <div class="mic-inner-icon">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="38" height="38">
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          <canvas id="visualizer-canvas" class="visualizer-canvas" width="320" height="320" aria-hidden="true"></canvas>
+          <button type="button" class="mic-hero-button" id="btn-hero-mic" aria-pressed="false" aria-label="Iniciar ou parar gravação pelo navegador">
+            <span class="mic-inner-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="32" height="32">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="22"/>
               </svg>
-            </div>
+            </span>
           </button>
         </div>
 
         <div class="recording-info">
           <div class="recording-timer" id="recording-timer">00:00</div>
           <div class="recording-state-label" id="recording-state-label">Pronto para ouvir</div>
-          <p class="recording-hint">Dica: No sistema, você pode simplesmente <strong>segurar Option (⌥)</strong> em qualquer janela do Mac!</p>
+          <p class="recording-hint" id="recording-hint-text">Pressione <strong>⌥ Option</strong> em qualquer janela do Mac ou clique no botão acima para testar no navegador.</p>
         </div>
 
-        <!-- Live Result Banner (appears after browser test transcription) -->
-        <div class="live-result-box" id="live-result-box" style="display: none;">
+        <!-- Resultado Ao Vivo (Teste pelo Navegador) -->
+        <div class="live-result-box" id="live-result-box" hidden>
           <div class="live-result-header">
             <span class="badge badge-success">Transcrição Concluída</span>
             <div class="live-result-actions">
-              <button class="btn btn-sm btn-outline" id="btn-copy-live">Copiar</button>
-              <button class="btn btn-sm btn-ghost" id="btn-close-live">✕</button>
+              <button type="button" class="btn btn-sm btn-outline" id="btn-copy-live">Copiar Texto</button>
+              <button type="button" class="btn btn-sm btn-ghost" id="btn-close-live" aria-label="Fechar resultado ao vivo">✕</button>
             </div>
           </div>
           <div class="live-result-text" id="live-result-text"></div>
@@ -191,145 +336,215 @@
       </div>
     </section>
 
-    <!-- Workspace Tabs Navigation -->
+    <!-- Abas de Trabalho: Histórico, Ajustes Completos & Documentação -->
     <section class="workspace-tabs">
-      <div class="tabs-header">
-        <button class="tab-btn active" data-tab="tab-history">
-          <span class="tab-icon">📜</span>
+      <div class="tabs-header" role="tablist" aria-label="Seções do painel">
+        <button type="button" class="tab-btn active" role="tab" id="aba-btn-historico" aria-selected="true" aria-controls="tab-history" data-tab="tab-history">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
           <span>Histórico Interativo</span>
           <span class="tab-counter" id="tab-history-count">0</span>
         </button>
-        <button class="tab-btn" data-tab="tab-settings">
-          <span class="tab-icon">⚙️</span>
-          <span>Ajustes & Preferências</span>
+
+        <button type="button" class="tab-btn" role="tab" id="aba-btn-ajustes" aria-selected="false" aria-controls="tab-settings" data-tab="tab-settings" tabindex="-1">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span>Ajustes &amp; Preferências</span>
         </button>
-        <button class="tab-btn" data-tab="tab-about">
-          <span class="tab-icon">💡</span>
-          <span>Permissões & Atalhos</span>
+
+        <button type="button" class="tab-btn" role="tab" id="aba-btn-sobre" aria-selected="false" aria-controls="tab-about" data-tab="tab-about" tabindex="-1">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+          </svg>
+          <span>Guia &amp; Permissões</span>
         </button>
       </div>
 
-      <!-- Tab 1: History -->
-      <div class="tab-content active" id="tab-history">
+      <!-- Aba 1: Histórico -->
+      <div class="tab-content active" role="tabpanel" id="tab-history" aria-labelledby="aba-btn-historico">
         <div class="history-toolbar">
           <div class="search-box">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <label for="history-search-input" class="visualmente-oculto">Buscar transcrições no histórico</label>
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="11" cy="11" r="8"/>
               <line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
-            <input type="text" id="history-search-input" placeholder="Buscar por palavra no histórico...">
+            <input type="search" id="history-search-input" name="busca_historico" placeholder="Buscar por trecho falado ou aplicativo...">
           </div>
 
-          <div class="filter-pills">
-            <button class="filter-pill active" data-filter="all">Todos</button>
-            <button class="filter-pill" data-filter="sent">Enviados</button>
-            <button class="filter-pill" data-filter="written_not_sent">Não Enviados</button>
-            <button class="filter-pill" data-filter="cancelled">Cancelados</button>
-            <button class="filter-pill" data-filter="partial">Recuperados (Crash)</button>
-            <button class="filter-pill" data-filter="error">Falhas / Erros</button>
+          <div class="filter-pills" role="group" aria-label="Filtrar histórico por status">
+            <button type="button" class="filter-pill active" data-filter="all">Todos</button>
+            <button type="button" class="filter-pill" data-filter="sent">Enviados</button>
+            <button type="button" class="filter-pill" data-filter="written_not_sent">Não Enviados</button>
+            <button type="button" class="filter-pill" data-filter="cancelled">Cancelados</button>
+            <button type="button" class="filter-pill" data-filter="partial">Recuperados</button>
+            <button type="button" class="filter-pill" data-filter="error">Erros</button>
           </div>
         </div>
 
         <div class="history-list" id="history-list-container">
           <div class="loading-state">
-            <div class="spinner"></div>
-            <p>Carregando histórico do banco SQLite...</p>
+            <div class="spinner" aria-hidden="true"></div>
+            <p>Carregando histórico local do SQLite...</p>
           </div>
         </div>
       </div>
 
-      <!-- Tab 2: Settings -->
-      <div class="tab-content" id="tab-settings">
-        <div class="settings-form">
-          <div class="settings-section">
-            <h3 class="settings-section-title">Comportamento de Ditado & Inserção</h3>
-            
+      <!-- Aba 2: Formulário Completo de Ajustes -->
+      <div class="tab-content" role="tabpanel" id="tab-settings" aria-labelledby="aba-btn-ajustes" hidden>
+        <form class="settings-form" id="form-configuracoes" action="/settings" method="POST">
+          <!-- Grupo 1: Modo de Acionamento -->
+          <fieldset class="settings-section">
+            <legend class="settings-section-title">Modo de Acionamento do Atalho</legend>
+            <p class="setting-hint">Escolha como a tecla de atalho global se comporta ao ditar em qualquer janela.</p>
+
+            <div class="opcoes-radio-modo">
+              <label class="opcao-radio-card" for="radio-modo-hibrido">
+                <input type="radio" id="radio-modo-hibrido" name="modo_acionamento" value="hibrido" checked>
+                <div class="opcao-radio-texto">
+                  <span class="opcao-radio-titulo">Híbrido (Segurar ou Toque Rápido)</span>
+                  <span class="opcao-radio-sub">Segurar ≥ 0.35s envia ao soltar; toque curto trava ligado até o próximo toque.</span>
+                </div>
+              </label>
+
+              <label class="opcao-radio-card" for="radio-modo-segurar">
+                <input type="radio" id="radio-modo-segurar" name="modo_acionamento" value="segurar">
+                <div class="opcao-radio-texto">
+                  <span class="opcao-radio-titulo">Segurar para Falar (Push-and-Hold)</span>
+                  <span class="opcao-radio-sub">Nunca trava em modo contínuo; encerra imediatamente assim que soltar a tecla.</span>
+                </div>
+              </label>
+
+              <label class="opcao-radio-card" for="radio-modo-alternar">
+                <input type="radio" id="radio-modo-alternar" name="modo_acionamento" value="alternar">
+                <div class="opcao-radio-texto">
+                  <span class="opcao-radio-titulo">Toque para Alternar (Liga / Desliga)</span>
+                  <span class="opcao-radio-sub">1º toque inicia gravação contínua; 2º toque encerra e insere o texto.</span>
+                </div>
+              </label>
+            </div>
+          </fieldset>
+
+          <!-- Grupo 2: Ditado, Caça de Input e Inserção -->
+          <fieldset class="settings-section">
+            <legend class="settings-section-title">Ditado, Foco Inteligente &amp; Inserção</legend>
+
             <div class="setting-item">
               <div class="setting-text">
-                <label class="setting-label">Correção Gramatical Automática</label>
-                <p class="setting-hint">Ajusta pontuação correta e concordância verbal no texto gerado.</p>
+                <label class="setting-label" for="setting-grammar">Correção Gramatical Automática</label>
+                <p class="setting-hint" id="dica-gramatica">Corrige concordância e pontuação preservando seu estilo.</p>
               </div>
-              <label class="switch">
-                <input type="checkbox" id="setting-grammar" checked>
-                <span class="slider"></span>
+              <label class="switch" for="setting-grammar">
+                <input type="checkbox" id="setting-grammar" name="grammar_correction" aria-describedby="dica-gramatica" checked>
+                <span class="slider" aria-hidden="true"></span>
               </label>
             </div>
 
             <div class="setting-item">
               <div class="setting-text">
-                <label class="setting-label">Adicionar no Cursor (Modo Append)</label>
-                <p class="setting-hint">Ao soltar e falar novamente, adiciona o novo texto na posição do cursor sem apagar o anterior.</p>
+                <label class="setting-label" for="setting-append">Adicionar no Cursor (Modo Incremental)</label>
+                <p class="setting-hint" id="dica-append">Insere novos trechos ditados na posição do cursor sem sobrescrever o conteúdo anterior.</p>
               </div>
-              <label class="switch">
-                <input type="checkbox" id="setting-append" checked>
-                <span class="slider"></span>
+              <label class="switch" for="setting-append">
+                <input type="checkbox" id="setting-append" name="append_at_cursor" aria-describedby="dica-append" checked>
+                <span class="slider" aria-hidden="true"></span>
               </label>
             </div>
 
             <div class="setting-item">
               <div class="setting-text">
-                <label class="setting-label">Modo Toggle (Dois Toques)</label>
-                <p class="setting-hint">Permite gravar com um toque duplo na tecla e parar com outro, sem precisar segurar continuamente.</p>
+                <label class="setting-label" for="setting-auto-hunt">Caçar Input Visível na Aba Ativa</label>
+                <p class="setting-hint" id="dica-auto-hunt">Localiza e pontua automaticamente caixas de chat/prompt dentro de abas web ou apps caso nenhum campo esteja focado.</p>
               </div>
-              <label class="switch">
-                <input type="checkbox" id="setting-toggle">
-                <span class="slider"></span>
+              <label class="switch" for="setting-auto-hunt">
+                <input type="checkbox" id="setting-auto-hunt" name="auto_hunt_input" aria-describedby="dica-auto-hunt" checked>
+                <span class="slider" aria-hidden="true"></span>
               </label>
             </div>
 
             <div class="setting-item">
               <div class="setting-text">
-                <label class="setting-label">Iniciar com o macOS (LaunchAgent)</label>
-                <p class="setting-hint">Inicia automaticamente em segundo plano no login do sistema.</p>
+                <label class="setting-label" for="setting-click-focus">Permitir Clique Suave de Contingência para Focar</label>
+                <p class="setting-hint" id="dica-click-focus">Se a API de Acessibilidade não confirmar foco direto no campo encontrado, realiza clique suave restaurando a posição do mouse.</p>
               </div>
-              <label class="switch">
-                <input type="checkbox" id="setting-autostart" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
-
-            <!-- Proteção Anti-Perda e Chunks -->
-            <div class="setting-item">
-              <div class="setting-text">
-                <label class="setting-label">Backup Contínuo por Chunks (Proteção Anti-Perda)</label>
-                <p class="setting-hint">Grava pedaços de áudio em tempo real para o disco em formato leve (OGG). Se a máquina reiniciar ou travar, seu áudio fica salvo.</p>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="setting-chunk-backup" checked>
-                <span class="slider"></span>
+              <label class="switch" for="setting-click-focus">
+                <input type="checkbox" id="setting-click-focus" name="click_to_focus_input" aria-describedby="dica-click-focus" checked>
+                <span class="slider" aria-hidden="true"></span>
               </label>
             </div>
 
             <div class="setting-item">
               <div class="setting-text">
-                <label class="setting-label">Iniciar Fatiamento Após (Segundos)</label>
-                <p class="setting-hint">Digite livremente o tempo de fala contínua antes de iniciar a divisão em chunks de 30s (Padrão: 40 segundos).</p>
+                <label class="setting-label" for="setting-insertion-method">Método de Inserção de Texto</label>
+                <p class="setting-hint" id="dica-metodo-insercao">Colagem rápida preservando a área de transferência ou simulação caractere a caractere via Quartz.</p>
               </div>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <input type="number" id="setting-chunk-start" class="form-select" min="5" max="300" step="5" value="40" style="width: 90px; text-align: center; font-weight: 700;">
-                <span style="font-size: 0.85rem; color: var(--text-secondary);">segundos</span>
+              <select id="setting-insertion-method" name="insertion_method" class="form-select controle-compacto" aria-describedby="dica-metodo-insercao">
+                <option value="clipboard_paste">Colagem Rápida (Preserva Clipboard)</option>
+                <option value="keystroke">Digitação Unicode (Tecla a Tecla)</option>
+              </select>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-text">
+                <label class="setting-label" for="setting-autostart">Iniciar Automaticamente no Login (LaunchAgent)</label>
+                <p class="setting-hint" id="dica-autostart">Mantém o serviço pronto na barra de menus assim que você entra no macOS.</p>
+              </div>
+              <label class="switch" for="setting-autostart">
+                <input type="checkbox" id="setting-autostart" name="auto_start_login" aria-describedby="dica-autostart" checked>
+                <span class="slider" aria-hidden="true"></span>
+              </label>
+            </div>
+          </fieldset>
+
+          <!-- Grupo 3: Proteção Anti-Perda & Silêncio -->
+          <fieldset class="settings-section">
+            <legend class="settings-section-title">Proteção Anti-Perda &amp; Parada Inteligente</legend>
+
+            <div class="setting-item">
+              <div class="setting-text">
+                <label class="setting-label" for="setting-chunk-backup">Backup Contínuo por Fatias (OGG Vorbis)</label>
+                <p class="setting-hint" id="dica-chunk-backup">Salva fatias preventivas em disco durante falas longas e recupera automaticamente sessões órfãs no boot.</p>
+              </div>
+              <label class="switch" for="setting-chunk-backup">
+                <input type="checkbox" id="setting-chunk-backup" name="chunk_backup_enabled" aria-describedby="dica-chunk-backup" checked>
+                <span class="slider" aria-hidden="true"></span>
+              </label>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-text">
+                <label class="setting-label" for="setting-chunk-start">Iniciar Fatiamento Preventivo Após (Segundos)</label>
+                <p class="setting-hint" id="dica-chunk-start">Tempo contínuo de gravação antes de iniciar fatias de 30s (Padrão: 40s).</p>
+              </div>
+              <div class="campo-numerico-sufixo">
+                <input type="number" id="setting-chunk-start" name="chunk_start_seconds" class="form-input input-curto" min="5" max="600" step="5" value="40" inputmode="numeric" aria-describedby="dica-chunk-start">
+                <span class="sufixo-unidade">seg</span>
               </div>
             </div>
 
             <div class="setting-item">
               <div class="setting-text">
-                <label class="setting-label">Auto-Parar após Silêncio (Segundos)</label>
-                <p class="setting-hint">Se você parar de falar por este tempo, o aplicativo para a gravação e transcreve automaticamente (Padrão: 60 segundos). Evita gravação infinita.</p>
+                <label class="setting-label" for="setting-silence-stop">Auto-Parar Após Silêncio Contínuo (Segundos)</label>
+                <p class="setting-hint" id="dica-silence-stop">Encerra e transcreve automaticamente caso nenhum som de voz seja detectado neste período (Padrão: 60s).</p>
               </div>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <input type="number" id="setting-silence-stop" class="form-select" min="5" max="600" step="5" value="60" style="width: 90px; text-align: center; font-weight: 700;">
-                <span style="font-size: 0.85rem; color: var(--text-secondary);">segundos</span>
+              <div class="campo-numerico-sufixo">
+                <input type="number" id="setting-silence-stop" name="silence_auto_stop_seconds" class="form-input input-curto" min="5" max="1200" step="5" value="60" inputmode="numeric" aria-describedby="dica-silence-stop">
+                <span class="sufixo-unidade">seg</span>
               </div>
             </div>
-          </div>
+          </fieldset>
 
-          <div class="settings-section">
-            <h3 class="settings-section-title">Teclado & Modelos</h3>
+          <!-- Grupo 4: Teclado, Idioma e Modelos -->
+          <fieldset class="settings-section">
+            <legend class="settings-section-title">Atalho Global, Idioma &amp; Modelos IA</legend>
 
             <div class="form-row">
               <div class="form-group">
-                <label for="setting-hotkey">Atalho Global de Gravação</label>
-                <select id="setting-hotkey" class="form-select">
+                <label for="setting-hotkey">Tecla de Atalho Global</label>
+                <select id="setting-hotkey" name="hotkey" class="form-select">
                   <option value="Alt">⌥ Option / Alt (Recomendado)</option>
                   <option value="Control">⌃ Control</option>
                   <option value="Command">⌘ Command</option>
@@ -338,8 +553,8 @@
               </div>
 
               <div class="form-group">
-                <label for="setting-language">Idioma de Transcrição</label>
-                <select id="setting-language" class="form-select">
+                <label for="setting-language">Idioma Base da Fala</label>
+                <select id="setting-language" name="language" class="form-select">
                   <option value="pt">Português Brasileiro (pt-BR)</option>
                   <option value="en">Inglês (en-US)</option>
                   <option value="es">Espanhol (es)</option>
@@ -351,57 +566,57 @@
             <div class="form-row">
               <div class="form-group">
                 <label for="setting-stt-model">Modelo Whisper STT (Groq)</label>
-                <input type="text" id="setting-stt-model" class="form-input" value="whisper-large-v3-turbo" readonly>
+                <input type="text" id="setting-stt-model" name="groq_stt_model" class="form-input" value="whisper-large-v3-turbo" autocomplete="off">
               </div>
+
               <div class="form-group">
-                <label for="setting-llm-model">Modelo LLM de Ajuste de Tom (Groq)</label>
-                <input type="text" id="setting-llm-model" class="form-input" value="qwen/qwen3.8-27b" readonly>
+                <label for="setting-llm-model">Modelo LLM de Reescrita e Tom (Groq)</label>
+                <input type="text" id="setting-llm-model" name="groq_llm_model" class="form-input" value="qwen/qwen3.8-27b" autocomplete="off">
               </div>
             </div>
 
             <div class="settings-footer">
-              <button class="btn btn-primary" id="btn-save-settings">Salvar Preferências</button>
-              <button class="btn btn-outline" id="btn-reset-settings">Restaurar Padrões</button>
+              <button type="submit" class="btn btn-primary" id="btn-save-settings">Salvar Preferências</button>
+              <button type="button" class="btn btn-outline" id="btn-reset-settings">Restaurar Padrões</button>
             </div>
-          </div>
-        </div>
+          </fieldset>
+        </form>
       </div>
 
-      <!-- Tab 3: About & Permissions -->
-      <div class="tab-content" id="tab-about">
+      <!-- Aba 3: Guia & Permissões -->
+      <div class="tab-content" role="tabpanel" id="tab-about" aria-labelledby="aba-btn-sobre" hidden>
         <div class="about-container">
           <div class="about-card">
-            <h3>Como Funciona o Ditado no macOS</h3>
-            <p>O <strong>Voice Transcription</strong> roda como daemon silencioso no menu bar. Você não precisa manter esta janela aberta para utilizá-lo:</p>
+            <h3>Fluxo de Ditado Universal no macOS</h3>
+            <p>O <strong>Voice Transcription</strong> opera de forma autônoma na barra de menus com um indicador flutuante em <strong>brilho vermelho difuso CoreGraphics</strong> na base da tela:</p>
             <ol class="guide-steps">
-              <li><strong>Clique</strong> no campo de texto onde quer escrever (WhatsApp, VS Code, Google Docs, Terminal, etc.).</li>
-              <li><strong>Pressione e segure</strong> a tecla <kbd>⌥ Option</kbd> (Alt). O microfone começará a capturar.</li>
-              <li><strong>Fale normalmente</strong>, inclusive fazendo pausas naturais de respiração — o áudio não será cortado.</li>
-              <li><strong>Solte a tecla</strong>. O áudio é enviado para transcrição na nuvem ultra-rápida Groq, tem o tom ajustado e é colado na posição exata do seu cursor.</li>
-              <li>Pressione <kbd>Esc</kbd> caso queira cancelar uma gravação sem colar nada.</li>
+              <li><strong>Em qualquer janela ou navegador:</strong> aponte para o aplicativo desejado. Se o cursor ainda não estiver no campo de chat/prompt da aba, o <em>Caçador Inteligente de Input</em> localiza e foca o compositor principal (ignorando barras de endereço/URL).</li>
+              <li><strong>Acione o atalho <kbd>⌥ Option</kbd>:</strong> use no modo <strong>Híbrido</strong> (segurar fala e soltar envia, ou toque rápido trava ligado), <strong>Segurar para Falar</strong> ou <strong>Toque para Alternar</strong>.</li>
+              <li><strong>Acompanhe o brilho vermelho difuso:</strong> o halo orgânico pulsa conforme a intensidade da sua voz sem bloquear cliques nem roubar o foco da janela ativa.</li>
+              <li><strong>Cancelamento instantâneo:</strong> pressione <kbd>Esc</kbd> durante qualquer gravação para interromper sem digitar nada (o áudio continua salvo para eventual recuperação).</li>
             </ol>
           </div>
 
           <div class="about-card">
-            <h3>Permissões de Sistema Necessárias</h3>
-            <p>Para o macOS permitir que o aplicativo interaja sobre outros programas, conceda as permissões em <strong>Ajustes do Sistema > Privacidade e Segurança</strong>:</p>
+            <h3>As 3 Permissões do macOS (Privacidade e Segurança)</h3>
+            <p>Conceda acesso ao <strong>VoiceTranscription.app</strong> (ou ao terminal utilizado em desenvolvimento) em <strong>Ajustes do Sistema &gt; Privacidade e Segurança</strong>:</p>
             <div class="permissions-list">
               <div class="permission-item">
-                <span class="p-icon">🎙️</span>
+                <span class="p-badge">1</span>
                 <div>
-                  <strong>Microfone:</strong> Permite capturar sua voz quando a tecla for acionada.
+                  <strong>Microfone:</strong> captura de voz pelo dispositivo físico real (ignorando automaticamente drivers virtuais como BlackHole/Voicemod).
                 </div>
               </div>
               <div class="permission-item">
-                <span class="p-icon">♿</span>
+                <span class="p-badge">2</span>
                 <div>
-                  <strong>Acessibilidade:</strong> Permite detectar se há um campo de texto ativo e colar o resultado no cursor.
+                  <strong>Acessibilidade:</strong> leitura da árvore <code>AXUIElement</code> / <code>AXWebArea</code> para caçar o campo editável correto e colar no cursor preservando seu clipboard.
                 </div>
               </div>
               <div class="permission-item">
-                <span class="p-icon">⌨️</span>
+                <span class="p-badge">3</span>
                 <div>
-                  <strong>Monitoramento de Entrada:</strong> Permite escutar a tecla de atalho mesmo estando em outro app.
+                  <strong>Monitoramento de Entrada:</strong> escuta global e idempotente da tecla de atalho mesmo com outros aplicativos em primeiro plano.
                 </div>
               </div>
             </div>
@@ -411,10 +626,9 @@
     </section>
   </main>
 
-  <!-- Toast Notification Container -->
-  <div class="toast-container" id="toast-container"></div>
+  <!-- Região Viva Única para Notificações -->
+  <div class="toast-container" id="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <!-- Scripts -->
   <script src="js/app.js"></script>
 </body>
 </html>

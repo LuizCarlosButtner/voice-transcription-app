@@ -1,81 +1,92 @@
 # Voice Transcription App
 
-Aplicativo desktop autônomo para macOS que transforma voz em texto em qualquer janela ativa, inspirado no Superwhisper e VocaMac, desenvolvido em Python.
+Aplicativo desktop autônomo e nativo para macOS que transforma voz em texto em qualquer janela ativa, com ajuste contextual de tom, tradução instantânea e caça inteligente de campos de texto.
+
+Diretório oficial do projeto:
+```text
+/Users/luizcarlospereira/programas/voice-transcription-app
+```
 
 ---
 
 ## Recursos Principais
 
-- **Ativação Híbrida Inteligente (Hold para Falar OU Toque para Alternar):**
-  - **Push-and-Hold:** Pressione e segure o atalho global (`Option/Alt`). Enquanto estiver segurando, ele grava; soltou o dedo, ele encerra a gravação e envia o texto imediatamente.
-  - **Tap-to-Toggle (Toque Simples):** Se você apenas der um clique/toque rápido no atalho e soltar, ele ativa a gravação contínua e permanece ligado. Quando terminar de falar, basta pressionar o atalho mais uma vez para encerrar e enviar.
-- **Sem Quebra por Pausa:** O áudio é capturado continuamente enquanto a tecla estiver pressionada, sem divisão prematura por silêncio.
-- **Inserção Incremental (Append):** Repetidos ciclos de fala adicionam o texto de forma contínua no cursor sem substituir o conteúdo existente.
-- **Guarda de Foco:** O aplicativo detecta via Acessibilidade (macOS AXUIElement) se há um campo de texto em foco antes de iniciar a gravação, prevenindo acionamentos acidentais.
-- **Tons de Voz e Correção Gramatical:**
-  - `Verbatim` (Padrão, sem filtro): Transcrição exata das palavras faladas, sem censura, com pontuação adequada.
-  - `Coloquial`: Ajusta vocabulário para estilo descontraído mantendo as ideias do usuário.
-  - `Semiformal`: Tom equilibrado para comunicação profissional diária.
-  - `Formal`: Tom refinado e polido para documentos e correspondências oficiais.
-- **Tradução Instantânea para Inglês (PT ➔ EN):**
-  - Fale naturalmente em português brasileiro; o aplicativo transcreve sua voz e insere **diretamente em inglês** no campo de texto ativo (ideal para CLIs como Gemini CLI, Claude Code, chats internacionais ou prompts em inglês).
-  - Pode ser ativado ou desativado na hora com um clique no botão azul do painel web ou pelo item `🌐 Traduzir para Inglês` na barra de menus do macOS.
-- **Backup Anti-Perda Contínuo por Chunks (Formato OGG Leve):**
-  - Para áudios longos, o aplicativo inicia automaticamente a gravação de chunks de 30s em tempo real após um limiar configurável (padrão de 40 segundos, digitável livremente).
-  - Se a máquina reiniciar, travar ou sofrer queda abrupta, o áudio já fatiado em disco é resgatado automaticamente como sessão recuperada no próximo boot.
-  - Áudio salvo em formato enxuto OGG Vorbis (~300 KB/min), ocupando fração mínima de disco comparado ao WAV.
-- **Auto-Parada Inteligente por Silêncio (Proteção contra Gravação Infinita):**
-  - Se você esquecer a gravação ligada ou acionar a tecla por engano e não falar nada por um tempo configurável (padrão de **60 segundos / 1 minuto**), o aplicativo interrompe a captura e finaliza a transcrição automaticamente, poupando CPU, memória e requisições desnecessárias.
-  - O tempo de tolerância de silêncio pode ser alterado livremente digitando o valor em segundos na barra de menus ou no painel web.
-- **Menu de Recuperação Direta:**
-  - Áudios não enviados, cancelados ou recuperados de falhas aparecem diretamente no submenu `🔄 Recuperação (Não Enviados)` da barra de menus.
-  - Clicando no item, o aplicativo transcreve (se necessário) e insere o texto **exatamente onde o cursor estiver posicionado**, sem nunca apagar ou sobrescrever o texto existente.
-- **Histórico Completo com Áudio de Recuperação:** Todas as sessões (sucessos, cancelados, erros e não-enviados) são persistidas em SQLite local (`~/.voice-transcription/history.db`).
-- **Provedor Primário e Fallback Offline:** Groq Cloud (`whisper-large-v3-turbo`) com fallback automático para SenseVoice-ONNX local.
-- **Ícone de Status no Menu Bar:** Indicador visual em tempo real (🟢 Ocioso, 🔴 Gravando, 🟡 Processando, ⚠️ Atenção/Erro).
-- **Inicialização Automática:** Suporte a inicialização com o sistema via LaunchAgent do macOS.
+### 1. Três Modos de Acionamento Global (`⌥ Option` por padrão)
+Configuráveis instantaneamente pela Barra de Menus do macOS ou pelo Painel de Controle Web:
+- **Híbrido (`hibrido` — Padrão Recomendado):**
+  - **Segurar (≥ 0.35s):** grava enquanto a tecla estiver pressionada e envia assim que você soltar.
+  - **Toque Rápido (< 0.35s):** trava a gravação ligada com mãos livres; um novo toque encerra e insere o texto.
+- **Segurar para Falar (`segurar` — Push-and-Hold):**
+  - Grava estritamente enquanto a tecla permanecer pressionada (ignorando repetições automáticas de teclado) e sempre finaliza ao soltar, mesmo em toques curtos.
+- **Toque para Alternar (`alternar` — Liga/Desliga):**
+  - 1º toque inicia a captura contínua; 2º toque interrompe, transcreve e insere no cursor.
+- **Cancelamento Rápido (`Esc`):** interrompe imediatamente qualquer gravação sem colar texto, preservando o áudio no histórico para eventual recuperação.
+
+### 2. Brilho Vermelho Difuso Sofisticado (CoreGraphics + Painel Web 60fps)
+- **Overlay Nativo macOS (`NSPanel` 220×220 px):** posicionado horizontalmente centralizado a ~5.5% da base da tela, 100% transparente a cliques (`ignoresMouseEvents`) e sem roubar foco.
+  - **Ouvindo:** halo amplo vermelho carmesim/rubi renderizado via `CGGradientCreateWithColors` + `CGContextDrawRadialGradient`, acompanhado de duas ondas concêntricas de névoa acústica e núcleo rubi-coral quente modulado pela amplitude real da voz (sem círculos chapados e sem corte nas bordas).
+  - **Processando:** halo difuso âmbar/rubi suave com arco fino minimalista anti-aliased em rotação contínua.
+  - **Dissolução Suave:** contração orgânica e fade-out exponencial de `0.35s` ao retornar ao repouso.
+- **Estúdio Web Sincronizado em Tempo Real (`GET /eventos` SSE):** o `<canvas>` do painel web renderiza o mesmo brilho difuso a 60fps tanto em testes pelo navegador quanto ao pressionar `Option` em qualquer aplicativo do macOS.
+
+### 3. Protocolo de Autoteste de Inicialização (5 Etapas)
+No boot do daemon (e sob demanda via barra de menus ou `POST /diagnostico/executar`), o aplicativo valida automaticamente:
+1. **`armazenamento_banco`:** criação segura de `~/.voice-transcription`, verificação `PRAGMA quick_check` no SQLite e recuperação automática de fatias de áudio órfãs.
+2. **`chaves_provedores`:** validação de `GROQ_API_KEY`, suporte a gravação leve OGG Vorbis (`soundfile`) e disponibilidade de contingência local (`SenseVoice`).
+3. **`permissoes_macos`:** diagnóstico individual de **Microfone**, **Acessibilidade** e **Monitoramento de Entrada**.
+4. **`subsistema_audio`:** filtragem automática de drivers virtuais (como BlackHole, Voicemod, Loopback e Soundflower), seleção do microfone físico real e fallback automático de taxa de amostragem para 16 kHz.
+5. **`escutador_atalho`:** garantia de instância única e idempotente do listener global de teclado com supervisão contínua (watchdog).
+
+### 4. Caça Inteligente de Input em Abas e Aplicativos (`AXWebArea`)
+- Ativa `AXEnhancedUserInterface` e `AXManualAccessibility` automaticamente para que navegadores (Chrome, Brave, Arc, Edge, Safari) e apps Electron exponham a árvore interna da aba.
+- Calcula pontuação de relevância priorizando compositores multi-linha (`AXTextArea` / `AXTextView`) dentro de `AXWebArea` com dicas semânticas de chat/prompt, penalizando fortemente barras de endereço/URL no topo da janela e ignorando textos estáticos não editáveis.
+- Caso o foco direto via Acessibilidade não seja confirmado, executa opcionalmente um clique suave no centro do campo restaurando a posição original do cursor do mouse em seguida, e preserva integralmente o conteúdo anterior da área de transferência (clipboard) ao colar.
+
+### 5. Tons de Voz, Tradução PT ➔ EN e Proteção Anti-Perda
+- **Quatro Estilos de Escrita:** `Verbatim` (sem filtro), `Coloquial`, `Semiformal` e `Formal`.
+- **Tradução Instantânea (PT ➔ EN):** fale em português brasileiro e insira diretamente em inglês no aplicativo ativo.
+- **Backup Contínuo por Fatias OGG & Auto-Parada por Silêncio:** grava fatias preventivas de 30s após o limiar configurado (padrão: 40s) e encerra automaticamente após silêncio prolongado (padrão: 60s).
 
 ---
 
 ## Permissões Necessárias no macOS
 
-Para operar globalmente sobre outros aplicativos, o macOS requer três permissões em **Ajustes do Sistema > Privacidade e Segurança**:
-
-1. **Microfone:** Para captura de áudio da sua voz.
-2. **Acessibilidade:** Para detectar o campo em foco e simular digitação/colagem no cursor do aplicativo ativo.
-3. **Monitoramento de Entrada:** Para escutar o atalho global de teclado em segundo plano.
-
----
-
-## Configuração de Ambiente
-
-O aplicativo busca automaticamente as chaves de API nas variáveis de ambiente do sistema (`os.environ`), como as definidas em `~/.zshenv` ou `~/.zshrc`. Caso prefira isolar, crie um arquivo `.env` na raiz do projeto baseado no `.env.example`:
-
-```bash
-cp .env.example .env
-```
-
-### Variáveis Suportadas
-- `GROQ_API_KEY`: Chave da API Groq (utilizada para transcrição rápida Whisper e processamento de tom).
+Em **Ajustes do Sistema > Privacidade e Segurança**, conceda ao `VoiceTranscription.app` (ou ao terminal utilizado em desenvolvimento):
+1. **Microfone:** captura da sua voz pelo microfone físico.
+2. **Acessibilidade:** inspeção de foco `AXUIElement` / `AXWebArea` e colagem no cursor ativo.
+3. **Monitoramento de Entrada:** escuta global da tecla de atalho em segundo plano.
 
 ---
 
-## Instalação e Execução
+## Instalação, Execução e Empacotamento
 
-### Pré-requisitos
-- macOS 13+ (Apple Silicon ou Intel)
-- Python 3.11+
-
-### Instalação de Dependências
+### 1. Ambiente Virtual e Dependências
 ```bash
+cd /Users/luizcarlospereira/programas/voice-transcription-app
 python3 -m venv venv
 source venv/bin/activate
 pip install -r backend/requirements.txt
 ```
 
-### Executar em Desenvolvimento
+Configure a chave `GROQ_API_KEY` no seu ambiente (`~/.zshenv` / `~/.zshrc`) ou em um arquivo `.env` na raiz do projeto:
 ```bash
-python3 backend/main.py
+cp .env.example .env
+```
+
+### 2. Executar o Aplicativo Completo (Menu Bar + Overlay + Painel Web)
+```bash
+./venv/bin/python backend/main.py
+```
+O Painel de Controle Web fica disponível em `http://127.0.0.1:8100/`.
+
+### 3. Gerar o Bundle Nativo `VoiceTranscription.app`
+```bash
+./venv/bin/python packaging/build_app.py
+```
+
+### 4. Executar a Suíte de Testes Isolada
+```bash
+./venv/bin/pytest
 ```
 
 ---

@@ -1,409 +1,674 @@
-import os
+"""
+Aplicativo nativo da barra de menus do macOS (rumps + PyObjC AppHelper).
+
+Gerencia o ícone animado de status com total segurança de threads (Main Thread),
+acionamento manual, seleção dos 3 modos de acionamento, tons de voz, recuperação
+de áudios pendentes e execução sob demanda do protocolo de autoteste.
+"""
+
+import asyncio
+import datetime
 import subprocess
+import sys
 import threading
 import time
+import webbrowser
 from pathlib import Path
 from typing import Optional
+
+import AppKit
 import rumps
+from PyObjCTools import AppHelper
 
-from config import get_settings, update_settings, BASE_APP_DIR
-from autostart import is_autostart_installed, install_autostart, uninstall_autostart
-from history import history_manager
-from floating_overlay import floating_overlay
+from autostart import (
+    autoinicio_esta_instalado,
+    desinstalar_autoinicio,
+    instalar_autoinicio,
+    obter_executavel_app,
+)
+from config import DIRETORIO_BASE_APP, atualizar_configuracoes, obter_configuracoes
+from floating_overlay import overlay_flutuante
+from history import gerenciador_historico
+from protocolo_inicializacao import protocolo_inicializacao
 
-STATUS_ICONS = {
+ICONES_STATUS = {
     "idle": "🟢",
-    "listening": "REC 🔴",
-    "processing": "REC 🟡",
+    "listening": "🔴 REC",
+    "processing": "🟡 REC ...",
     "no_focus": "⚠️ Sem Foco",
-    "error": "⚠️ Erro"
+    "error": "⚠️ Erro",
 }
 
-TONES = [
+ROTULOS_STATUS_PADRAO = {
+    "idle": "Pronto (Ocioso)",
+    "listening": "Ouvindo sua voz...",
+    "processing": "Transcrevendo e ajustando tom...",
+    "no_focus": "Nenhum campo editável em foco",
+    "error": "Falha no processamento",
+}
+
+TONS_VOZ = [
     ("verbatim", "Verbatim (Sem filtro)"),
     ("colloquial", "Coloquial"),
     ("semiformal", "Semiformal"),
-    ("formal", "Formal")
+    ("formal", "Formal"),
 ]
 
-class VoiceTranscriptionTrayApp(rumps.App):
-    def __init__(self, daemon_ref=None):
-        super().__init__("VoiceTranscription", title=STATUS_ICONS["idle"], quit_button=None)
-        self.daemon_ref = daemon_ref
-        self._current_status = "idle"
-        self._anim_thread = None
-        self._anim_stop_event = threading.Event()
+MODOS_ACIONAMENTO = [
+    ("hibrido", "Híbrido (Segurar ou Toque Rápido)"),
+    ("segurar", "Segurar para Falar (Push-and-Hold)"),
+    ("alternar", "Toque para Alternar (Liga/Desliga)"),
+]
 
-        # Inicia thread de animação em background e o overlay flutuante na tela
-        self._anim_thread = threading.Thread(target=self._animation_loop, daemon=True)
-        self._anim_thread.start()
-        floating_overlay.start()
+
+def _despachar_para_thread_principal(operacao) -> None:
+    """Garante que mutações de itens Cocoa/rumps ocorram exclusivamente na Main Thread."""
+    if AppKit.NSThread.isMainThread():
+        operacao()
+    else:
+        AppHelper.callAfter(operacao)
+
+
+def _notificar_usuario(titulo: str, subtitulo: str, mensagem: str) -> None:
+    """Exibe notificação nativa do macOS de forma segura e tolerante a ambientes sem bundle."""
+    def _enviar() -> None:
+        try:
+            rumps.notification(titulo, subtitulo, mensagem)
+        except Exception as erro:
+            print(f"[BANDEJA] Aviso ao exibir notificação ({subtitulo}): {erro}")
+
+    _despachar_para_thread_principal(_enviar)
+
+
+class AplicativoBandejaVoz(rumps.App):
+    """Aplicativo de barra de menus do Voice Transcription com despacho thread-safe."""
+
+    def __init__(self, servico_ref=None):
+        super().__init__(
+            "VoiceTranscription",
+            title=ICONES_STATUS["idle"],
+            quit_button=None,
+        )
+        self.servico_ref = servico_ref
+        self._status_atual = "idle"
+        self._ultimo_titulo_enviado = ICONES_STATUS["idle"]
+        self._evento_parar_animacao = threading.Event()
+        self._thread_animacao: Optional[threading.Thread] = None
+
+        configuracoes = obter_configuracoes()
 
         # 1. Item informativo de status
-        self.status_item = rumps.MenuItem("Status: Pronto (Ocioso)")
-        self.menu.add(self.status_item)
+        self.item_status = rumps.MenuItem("Status: Pronto (Ocioso)")
+        self.menu.add(self.item_status)
         self.menu.add(rumps.separator)
 
-        # 2. Ação rápida de gravação manual (clicável direto no menu)
-        self.record_item = rumps.MenuItem("Gravar / Parar (Clique)", callback=self.on_record_clicked)
-        self.menu.add(self.record_item)
-        self.menu.add(rumps.separator)
-
-        # 3. Submenu de Tons de Voz
-        self.tone_menu = rumps.MenuItem("Tom de Voz (Estilo)")
-        self._tone_items = {}
-        current_tone = get_settings().tone or "verbatim"
-
-        for key, label in TONES:
-            item = rumps.MenuItem(label, callback=self._make_tone_callback(key))
-            item.state = 1 if key == current_tone else 0
-            self._tone_items[key] = item
-            self.tone_menu.add(item)
-
-        self.menu.add(self.tone_menu)
-
-        # Tradutor Instantâneo PT -> EN (Toggle Rápido em Destaque)
-        settings = get_settings()
-        self.translate_item = rumps.MenuItem("🌐 Traduzir para Inglês (PT ➔ EN)", callback=self.on_toggle_translate)
-        self.translate_item.state = 1 if settings.translate_to_english else 0
-        self.menu.add(self.translate_item)
-
-        # 4. Menu de Recuperação de Áudios Não Enviados (Ordem do Luiz)
-        self.recovery_menu = rumps.MenuItem("🔄 Recuperação (Não Enviados)")
-        self.menu.add(self.recovery_menu)
-        self._refresh_recovery_menu()
-        self.menu.add(rumps.separator)
-
-        # 4. Opções e Ajustes rápidos
-        self.settings_menu = rumps.MenuItem("Preferências")
-        
-        # Correção Gramatical
-        settings = get_settings()
-        self.grammar_item = rumps.MenuItem("Correção Gramatical Automática", callback=self.on_toggle_grammar)
-        self.grammar_item.state = 1 if settings.grammar_correction else 0
-        self.settings_menu.add(self.grammar_item)
-
-        # Modo Toggle (Push-and-hold vs Dois toques)
-        self.toggle_item = rumps.MenuItem("Modo Toggle (Gravar com Dois Toques)", callback=self.on_toggle_mode)
-        self.toggle_item.state = 1 if settings.toggle_mode else 0
-        self.settings_menu.add(self.toggle_item)
-
-        # Append at cursor
-        self.append_item = rumps.MenuItem("Adicionar no Cursor (Append)", callback=self.on_toggle_append)
-        self.append_item.state = 1 if settings.append_at_cursor else 0
-        self.settings_menu.add(self.append_item)
-
-        # Caçar Input Automaticamente (Jeito 1)
-        self.hunt_item = rumps.MenuItem("Caçar Input Visível se Sem Foco", callback=self.on_toggle_hunt)
-        self.hunt_item.state = 1 if settings.auto_hunt_input else 0
-        self.settings_menu.add(self.hunt_item)
-
-        # Iniciar com o macOS
-        self.autostart_item = rumps.MenuItem("Iniciar Automaticamente no Login", callback=self.on_toggle_autostart)
-        self.autostart_item.state = 1 if is_autostart_installed() else 0
-        self.settings_menu.add(self.autostart_item)
-
-        # Backup Anti-Perda em Chunks
-        self.chunk_backup_item = rumps.MenuItem("Backup Contínuo por Chunks", callback=self.on_toggle_chunk_backup)
-        self.chunk_backup_item.state = 1 if settings.chunk_backup_enabled else 0
-        self.settings_menu.add(self.chunk_backup_item)
-
-        # Limiar de Chunks Digitável (Campo Livre, default 40s)
-        self.chunk_threshold_item = rumps.MenuItem(
-            f"Iniciar Chunks aos: {settings.chunk_start_seconds}s (Alterar...)",
-            callback=self.on_change_chunk_threshold
+        # 2. Ação rápida de gravação manual
+        self.item_gravar = rumps.MenuItem(
+            "Gravar Agora (Clique)",
+            callback=self.ao_clicar_gravar,
         )
-        self.settings_menu.add(self.chunk_threshold_item)
+        self.menu.add(self.item_gravar)
+        self.menu.add(rumps.separator)
 
-        # Auto-parada por Silêncio (Campo Livre, default 60s)
-        self.silence_stop_item = rumps.MenuItem(
-            f"Auto-Parar após Silêncio: {settings.silence_auto_stop_seconds}s (Alterar...)",
-            callback=self.on_change_silence_stop
+        # 3. Submenu Modo de Acionamento (3 opções exclusivas)
+        self.menu_modo_acionamento = rumps.MenuItem("Modo de Acionamento")
+        self._itens_modo_acionamento: dict[str, rumps.MenuItem] = {}
+        modo_ativo = configuracoes.modo_acionamento or "hibrido"
+
+        for chave_modo, rotulo_modo in MODOS_ACIONAMENTO:
+            item_modo = rumps.MenuItem(
+                rotulo_modo,
+                callback=self._criar_retorno_modo_acionamento(chave_modo),
+            )
+            item_modo.state = 1 if chave_modo == modo_ativo else 0
+            self._itens_modo_acionamento[chave_modo] = item_modo
+            self.menu_modo_acionamento.add(item_modo)
+
+        self.menu.add(self.menu_modo_acionamento)
+
+        # 4. Submenu Tom de Voz (Estilo)
+        self.menu_tons = rumps.MenuItem("Tom de Voz (Estilo)")
+        self._itens_tons: dict[str, rumps.MenuItem] = {}
+        tom_ativo = configuracoes.tom or "verbatim"
+
+        for chave_tom, rotulo_tom in TONS_VOZ:
+            item_tom = rumps.MenuItem(
+                rotulo_tom,
+                callback=self._criar_retorno_tom(chave_tom),
+            )
+            item_tom.state = 1 if chave_tom == tom_ativo else 0
+            self._itens_tons[chave_tom] = item_tom
+            self.menu_tons.add(item_tom)
+
+        self.menu.add(self.menu_tons)
+
+        # 5. Tradutor Instantâneo PT -> EN
+        self.item_traduzir = rumps.MenuItem(
+            "🌐 Traduzir para Inglês (PT ➔ EN)",
+            callback=self.ao_alternar_traducao,
         )
-        self.settings_menu.add(self.silence_stop_item)
+        self.item_traduzir.state = 1 if configuracoes.traduzir_para_ingles else 0
+        self.menu.add(self.item_traduzir)
 
-        self.menu.add(self.settings_menu)
+        # 6. Submenu de Recuperação de Áudios Pendentes
+        self.menu_recuperacao = rumps.MenuItem("🔄 Recuperação (Não Enviados)")
+        self.menu.add(self.menu_recuperacao)
+        self._atualizar_menu_recuperacao()
         self.menu.add(rumps.separator)
 
-        # 5. Atalhos de utilitários
-        self.menu.add(rumps.MenuItem("Abrir Painel de Controle (Web)...", callback=self.on_open_web_ui))
-        self.menu.add(rumps.MenuItem("Abrir Pasta do Histórico...", callback=self.on_open_history_folder))
-        self.menu.add(rumps.MenuItem("Ver Documentação e Atalhos...", callback=self.on_open_docs))
+        # 7. Submenu de Preferências
+        self.menu_preferencias = rumps.MenuItem("Preferências")
+
+        self.item_gramatica = rumps.MenuItem(
+            "Correção Gramatical Automática",
+            callback=self.ao_alternar_gramatica,
+        )
+        self.item_gramatica.state = 1 if configuracoes.correcao_gramatical else 0
+        self.menu_preferencias.add(self.item_gramatica)
+
+        self.item_adicionar_cursor = rumps.MenuItem(
+            "Adicionar no Cursor (Append)",
+            callback=self.ao_alternar_adicionar_cursor,
+        )
+        self.item_adicionar_cursor.state = 1 if configuracoes.adicionar_no_cursor else 0
+        self.menu_preferencias.add(self.item_adicionar_cursor)
+
+        self.item_caca_campo = rumps.MenuItem(
+            "Caçar Campo Visível na Aba Ativa",
+            callback=self.ao_alternar_caca_campo,
+        )
+        self.item_caca_campo.state = 1 if configuracoes.cacar_input_automatico else 0
+        self.menu_preferencias.add(self.item_caca_campo)
+
+        self.item_clique_foco = rumps.MenuItem(
+            "Permitir Clique Suave para Focar Input",
+            callback=self.ao_alternar_clique_foco,
+        )
+        self.item_clique_foco.state = 1 if configuracoes.clicar_para_focar_input else 0
+        self.menu_preferencias.add(self.item_clique_foco)
+
+        self.item_autoinicio = rumps.MenuItem(
+            "Iniciar Automaticamente no Login",
+            callback=self.ao_alternar_autoinicio,
+        )
+        self.item_autoinicio.state = 1 if autoinicio_esta_instalado() else 0
+        self.menu_preferencias.add(self.item_autoinicio)
+
+        self.item_backup_fatias = rumps.MenuItem(
+            "Backup Contínuo por Fatias (OGG)",
+            callback=self.ao_alternar_backup_fatias,
+        )
+        self.item_backup_fatias.state = 1 if configuracoes.backup_fatias_ativo else 0
+        self.menu_preferencias.add(self.item_backup_fatias)
+
+        self.item_limiar_fatias = rumps.MenuItem(
+            f"Iniciar Fatias aos: {configuracoes.inicio_fatias_segundos}s (Alterar...)",
+            callback=self.ao_alterar_limiar_fatias,
+        )
+        self.menu_preferencias.add(self.item_limiar_fatias)
+
+        self.item_parada_silencio = rumps.MenuItem(
+            f"Auto-Parar após Silêncio: {configuracoes.parada_silencio_segundos}s (Alterar...)",
+            callback=self.ao_alterar_parada_silencio,
+        )
+        self.menu_preferencias.add(self.item_parada_silencio)
+
+        self.menu.add(self.menu_preferencias)
         self.menu.add(rumps.separator)
 
-        # 6. Reiniciar e Sair
-        self.menu.add(rumps.MenuItem("🔄 Reiniciar Voice Transcription", callback=self.on_restart_clicked))
-        self.menu.add(rumps.MenuItem("Encerrar Voice Transcription", callback=self.on_quit_clicked))
+        # 8. Diagnóstico e Utilitários
+        self.item_autoteste = rumps.MenuItem(
+            "🩺 Executar Autoteste de Inicialização",
+            callback=self.ao_executar_autoteste,
+        )
+        self.menu.add(self.item_autoteste)
 
-    def _make_tone_callback(self, tone_key: str):
-        def callback(sender):
-            update_settings({"tone": tone_key})
-            for k, item in self._tone_items.items():
-                item.state = 1 if k == tone_key else 0
-            label = dict(TONES).get(tone_key, tone_key)
-            rumps.notification("Voice Transcription", "Tom de Voz Atualizado", f"Modo ativo: {label}")
-        return callback
+        self.menu.add(
+            rumps.MenuItem(
+                "Abrir Painel de Controle (Web)...",
+                callback=self.ao_abrir_painel_web,
+            )
+        )
+        self.menu.add(
+            rumps.MenuItem(
+                "Abrir Pasta do Histórico...",
+                callback=self.ao_abrir_pasta_historico,
+            )
+        )
+        self.menu.add(
+            rumps.MenuItem(
+                "Ver Documentação e Atalhos...",
+                callback=self.ao_abrir_documentacao,
+            )
+        )
+        self.menu.add(rumps.separator)
 
-    def on_toggle_translate(self, sender):
-        new_state = not bool(sender.state)
-        sender.state = 1 if new_state else 0
-        update_settings({"translate_to_english": new_state})
-        status_msg = "Ativada (Fala em PT ➔ Digita em EN)" if new_state else "Desativada (Digita em PT)"
-        rumps.notification("Voice Transcription", "Tradução PT ➔ EN", status_msg)
+        # 9. Reiniciar e Encerrar
+        self.menu.add(
+            rumps.MenuItem(
+                "🔄 Reiniciar Voice Transcription",
+                callback=self.ao_clicar_reiniciar,
+            )
+        )
+        self.menu.add(
+            rumps.MenuItem(
+                "Encerrar Voice Transcription",
+                callback=self.ao_clicar_sair,
+            )
+        )
 
-    def _refresh_recovery_menu(self):
-        """Atualiza dinamicamente os itens pendentes dentro do submenu de recuperação."""
+        # Inicia overlay nativo e thread de animação de status
+        overlay_flutuante.iniciar()
+        self._thread_animacao = threading.Thread(
+            target=self._laco_animacao,
+            name="AnimacaoBandejaThread",
+            daemon=True,
+        )
+        self._thread_animacao.start()
+
+    def _criar_retorno_modo_acionamento(self, chave_modo: str):
+        """Gera callback para selecionar um dos 3 modos de acionamento."""
+        def _ao_selecionar(_remetente) -> None:
+            atualizar_configuracoes({"modo_acionamento": chave_modo})
+            for codigo, item in self._itens_modo_acionamento.items():
+                item.state = 1 if codigo == chave_modo else 0
+            rotulo = dict(MODOS_ACIONAMENTO).get(chave_modo, chave_modo)
+            _notificar_usuario(
+                "Voice Transcription",
+                "Modo de Acionamento Atualizado",
+                f"Ativo: {rotulo}",
+            )
+
+        return _ao_selecionar
+
+    def _criar_retorno_tom(self, chave_tom: str):
+        """Gera callback para selecionar o tom de voz desejado."""
+        def _ao_selecionar(_remetente) -> None:
+            atualizar_configuracoes({"tone": chave_tom})
+            for codigo, item in self._itens_tons.items():
+                item.state = 1 if codigo == chave_tom else 0
+            rotulo = dict(TONS_VOZ).get(chave_tom, chave_tom)
+            _notificar_usuario(
+                "Voice Transcription",
+                "Tom de Voz Atualizado",
+                f"Estilo ativo: {rotulo}",
+            )
+
+        return _ao_selecionar
+
+    def ao_alternar_traducao(self, remetente) -> None:
+        novo_estado = not bool(remetente.state)
+        remetente.state = 1 if novo_estado else 0
+        atualizar_configuracoes({"translate_to_english": novo_estado})
+        mensagem = (
+            "Ativada (Fala em PT ➔ Digita em EN)"
+            if novo_estado
+            else "Desativada (Digita no idioma original)"
+        )
+        _notificar_usuario("Voice Transcription", "Tradução PT ➔ EN", mensagem)
+
+    def _atualizar_menu_recuperacao(self) -> None:
+        """Recarrega os áudios pendentes/recuperáveis do banco SQLite."""
         try:
-            # Em rumps, remove itens limpando as chaves internas se o menu Cocoa já existir
-            if hasattr(self.recovery_menu, "_menu") and self.recovery_menu._menu is not None:
-                self.recovery_menu.clear()
+            if hasattr(self.menu_recuperacao, "_menu") and self.menu_recuperacao._menu is not None:
+                self.menu_recuperacao.clear()
             else:
-                for k in list(self.recovery_menu.keys()):
-                    del self.recovery_menu[k]
+                for chave in list(self.menu_recuperacao.keys()):
+                    del self.menu_recuperacao[chave]
 
-            recoverable = history_manager.list_recoverable(limit=10)
-            if not recoverable:
-                empty_item = rumps.MenuItem("Nenhum áudio pendente (Tudo enviado)")
-                self.recovery_menu.add(empty_item)
+            pendentes = gerenciador_historico.listar_recuperaveis(limite=10)
+            if not pendentes:
+                self.menu_recuperacao.add(
+                    rumps.MenuItem("Nenhum áudio pendente (Tudo enviado)")
+                )
                 return
 
-            for item in recoverable:
-                entry_id = item["id"]
-                raw_preview = item.get("text_final") or item.get("text_raw") or "Áudio não transcrito"
-                short_text = (raw_preview[:28] + "...") if len(raw_preview) > 28 else raw_preview
-                
-                # Formata hora local HH:MM:SS real do relógio do Mac
-                time_str = ""
-                created = item.get("created_at")
-                if created:
+            for registro in pendentes:
+                id_registro = registro["id"]
+                previa_bruta = (
+                    registro.get("text_final")
+                    or registro.get("text_raw")
+                    or "Áudio salvo aguardando transcrição"
+                )
+                texto_curto = (
+                    f"{previa_bruta[:30]}..."
+                    if len(previa_bruta) > 30
+                    else previa_bruta
+                )
+
+                prefixo_hora = ""
+                criado_em = registro.get("created_at")
+                if criado_em:
                     try:
-                        import datetime
-                        # Faz o parse da string ISO (seja com offset ou Z) e converte para timezone local do Mac
-                        dt = datetime.datetime.fromisoformat(created.replace("Z", "+00:00"))
-                        local_dt = dt.astimezone()
-                        time_str = f"[{local_dt.strftime('%H:%M:%S')}] "
+                        instante = datetime.datetime.fromisoformat(
+                            criado_em.replace("Z", "+00:00")
+                        )
+                        instante_local = instante.astimezone()
+                        prefixo_hora = f"[{instante_local.strftime('%H:%M:%S')}] "
                     except Exception:
                         pass
 
-                label = f"{time_str}\"{short_text}\""
+                rotulo_item = f'{prefixo_hora}"{texto_curto}"'
+                self.menu_recuperacao.add(
+                    rumps.MenuItem(
+                        rotulo_item,
+                        callback=self._criar_retorno_recuperacao(id_registro),
+                    )
+                )
 
-                menu_item = rumps.MenuItem(label, callback=self._make_recovery_callback(entry_id))
-                self.recovery_menu.add(menu_item)
+            self.menu_recuperacao.add(rumps.separator)
+            self.menu_recuperacao.add(
+                rumps.MenuItem(
+                    "Atualizar Lista de Pendências",
+                    callback=lambda _s: self._atualizar_menu_recuperacao(),
+                )
+            )
+        except Exception as erro:
+            print(f"[BANDEJA] Falha ao atualizar menu de recuperação: {erro}")
 
-            self.recovery_menu.add(rumps.separator)
-            self.recovery_menu.add(rumps.MenuItem("Atualizar Lista de Pendências", callback=lambda s: self._refresh_recovery_menu()))
-        except Exception as e:
-            print(f"[RECOVERY MENU] Falha ao atualizar: {e}")
+    def _criar_retorno_recuperacao(self, id_registro: str):
+        """Gera callback assíncrono para recuperar e colar um áudio pendente."""
+        def _ao_recuperar(_remetente) -> None:
+            if self.servico_ref is None:
+                return
 
-    def _make_recovery_callback(self, entry_id: str):
-        def callback(sender):
-            if self.daemon_ref:
-                import asyncio
-                import threading
-                threading.Thread(
-                    target=lambda: asyncio.run(self.daemon_ref.recover_and_insert(entry_id)),
-                    daemon=True
-                ).start()
-                self._refresh_recovery_menu()
-        return callback
+            def _executar_recuperacao() -> None:
+                try:
+                    asyncio.run(self.servico_ref.recuperar_e_inserir(id_registro))
+                finally:
+                    _despachar_para_thread_principal(self._atualizar_menu_recuperacao)
 
-    def on_toggle_chunk_backup(self, sender):
-        new_state = not bool(sender.state)
-        sender.state = 1 if new_state else 0
-        update_settings({"chunk_backup_enabled": new_state})
-        status_msg = "Ativado" if new_state else "Desativado"
-        rumps.notification("Voice Transcription", "Backup de Chunks", f"Backup contínuo {status_msg}")
+            threading.Thread(
+                target=_executar_recuperacao,
+                name="RecuperacaoAudioThread",
+                daemon=True,
+            ).start()
 
-    def on_change_chunk_threshold(self, sender):
-        """Abre janela de entrada livre para o usuário digitar o valor em segundos (sem presets fixos)."""
-        settings = get_settings()
-        window = rumps.Window(
-            message=f"Digite o tempo inicial de fala (em segundos) antes de começar o fatiamento em chunks de 30s:\n\nAtual: {settings.chunk_start_seconds} segundos (Padrão: 40s)",
-            title="Limiar de Início dos Chunks",
-            default_text=str(settings.chunk_start_seconds),
-            ok="Salvar",
-            cancel="Cancelar",
-            dimensions=(280, 24)
-        )
-        response = window.run()
-        if response.clicked:
-            text_val = response.text.strip()
-            try:
-                val = int(text_val)
-                if val >= 5:
-                    update_settings({"chunk_start_seconds": val})
-                    sender.title = f"Iniciar Chunks aos: {val}s (Alterar...)"
-                    rumps.notification("Voice Transcription", "Limiar Atualizado", f"Chunks iniciarão após {val} segundos de fala.")
-                else:
-                    rumps.alert("Valor Inválido", "O tempo mínimo deve ser de pelo menos 5 segundos.")
-            except ValueError:
-                rumps.alert("Valor Inválido", "Por favor digite um número inteiro válido em segundos.")
+        return _ao_recuperar
 
-    def on_change_silence_stop(self, sender):
-        """Abre janela para o usuário digitar livremente o tempo de silêncio antes da auto-parada."""
-        settings = get_settings()
-        window = rumps.Window(
-            message=f"Digite quantos segundos de silêncio contínuo o aplicativo deve aguardar antes de parar e transcrever automaticamente:\n\nAtual: {settings.silence_auto_stop_seconds} segundos (Padrão: 60s)",
-            title="Auto-Parada por Silêncio",
-            default_text=str(settings.silence_auto_stop_seconds),
-            ok="Salvar",
-            cancel="Cancelar",
-            dimensions=(280, 24)
-        )
-        response = window.run()
-        if response.clicked:
-            text_val = response.text.strip()
-            try:
-                val = int(text_val)
-                if val >= 5:
-                    update_settings({"silence_auto_stop_seconds": val})
-                    sender.title = f"Auto-Parar após Silêncio: {val}s (Alterar...)"
-                    rumps.notification("Voice Transcription", "Auto-Parada Atualizada", f"Auto-parar após {val} segundos de silêncio.")
-                else:
-                    rumps.alert("Valor Inválido", "O tempo mínimo deve ser de pelo menos 5 segundos.")
-            except ValueError:
-                rumps.alert("Valor Inválido", "Por favor digite um número inteiro válido em segundos.")
-
-    def on_record_clicked(self, sender):
-        """Permite acionar a gravação diretamente por clique no menu sem precisar de teclado."""
-        if not self.daemon_ref:
+    def ao_clicar_gravar(self, _remetente) -> None:
+        """Inicia ou interrompe manualmente a gravação pela barra de menus."""
+        if self.servico_ref is None:
             return
-        if self._current_status == "listening":
-            self.daemon_ref._handle_stop()
+        if self._status_atual == "listening":
+            self.servico_ref.parar_gravacao_manual()
         else:
-            self.daemon_ref._handle_start()
+            self.servico_ref.iniciar_gravacao_manual()
 
-    def on_toggle_grammar(self, sender):
-        new_state = not bool(sender.state)
-        sender.state = 1 if new_state else 0
-        update_settings({"grammar_correction": new_state})
+    def ao_alternar_gramatica(self, remetente) -> None:
+        novo_estado = not bool(remetente.state)
+        remetente.state = 1 if novo_estado else 0
+        atualizar_configuracoes({"grammar_correction": novo_estado})
 
-    def on_toggle_mode(self, sender):
-        new_state = not bool(sender.state)
-        sender.state = 1 if new_state else 0
-        update_settings({"toggle_mode": new_state})
+    def ao_alternar_adicionar_cursor(self, remetente) -> None:
+        novo_estado = not bool(remetente.state)
+        remetente.state = 1 if novo_estado else 0
+        atualizar_configuracoes({"append_at_cursor": novo_estado})
 
-    def on_toggle_append(self, sender):
-        new_state = not bool(sender.state)
-        sender.state = 1 if new_state else 0
-        update_settings({"append_at_cursor": new_state})
+    def ao_alternar_caca_campo(self, remetente) -> None:
+        novo_estado = not bool(remetente.state)
+        remetente.state = 1 if novo_estado else 0
+        atualizar_configuracoes({"auto_hunt_input": novo_estado})
+        _notificar_usuario(
+            "Voice Transcription",
+            "Caça Inteligente de Campo",
+            "Ativada" if novo_estado else "Desativada",
+        )
 
-    def on_toggle_hunt(self, sender):
-        new_state = not bool(sender.state)
-        sender.state = 1 if new_state else 0
-        update_settings({"auto_hunt_input": new_state})
-        rumps.notification("Voice Transcription", "Caça de Input", "Ativada" if new_state else "Desativada")
+    def ao_alternar_clique_foco(self, remetente) -> None:
+        novo_estado = not bool(remetente.state)
+        remetente.state = 1 if novo_estado else 0
+        atualizar_configuracoes({"click_to_focus_input": novo_estado})
 
-    def on_toggle_autostart(self, sender):
-        new_state = not bool(sender.state)
-        if new_state:
-            install_autostart()
+    def ao_alternar_autoinicio(self, remetente) -> None:
+        deseja_ativar = not bool(remetente.state)
+        if deseja_ativar:
+            instalar_autoinicio()
         else:
-            uninstall_autostart()
-        sender.state = 1 if is_autostart_installed() else 0
-        status_msg = "Ativado" if is_autostart_installed() else "Desativado"
-        rumps.notification("Voice Transcription", "Inicialização com macOS", f"Auto-start {status_msg}")
+            desinstalar_autoinicio()
+        instalado = autoinicio_esta_instalado()
+        remetente.state = 1 if instalado else 0
+        atualizar_configuracoes({"auto_start_login": instalado})
+        _notificar_usuario(
+            "Voice Transcription",
+            "Inicialização no Login",
+            "Ativada no LaunchAgent" if instalado else "Desativada",
+        )
 
-    def on_open_web_ui(self, sender):
-        import webbrowser
-        settings = get_settings()
-        url = f"http://127.0.0.1:{settings.port}/"
-        webbrowser.open(url)
+    def ao_alternar_backup_fatias(self, remetente) -> None:
+        novo_estado = not bool(remetente.state)
+        remetente.state = 1 if novo_estado else 0
+        atualizar_configuracoes({"chunk_backup_enabled": novo_estado})
+        _notificar_usuario(
+            "Voice Transcription",
+            "Backup Contínuo OGG",
+            "Ativado" if novo_estado else "Desativado",
+        )
 
-    def on_open_history_folder(self, sender):
-        BASE_APP_DIR.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["open", str(BASE_APP_DIR)])
-
-    def on_open_docs(self, sender):
-        readme_path = Path(__file__).resolve().parent.parent / "README.md"
-        if readme_path.exists():
-            subprocess.run(["open", str(readme_path)])
-
-    def on_restart_clicked(self, sender):
-        """Reinicia todo o serviço Voice Transcription de forma limpa."""
-        rumps.notification("Voice Transcription", "Reiniciando", "Reiniciando o aplicativo e serviços...")
-        self._anim_stop_event.set()
-        floating_overlay.stop()
-        if self.daemon_ref:
-            self.daemon_ref.stop_listening()
-
-        app_bundle = Path(__file__).resolve().parent.parent / "VoiceTranscription.app"
-        launcher_bin = app_bundle / "Contents" / "MacOS" / "VoiceTranscription"
-        
-        # Mata qualquer processo na porta 8100 e sobe uma nova instância do app
-        cmd = f"kill $(lsof -ti :8100) 2>/dev/null || true; sleep 0.5; '{launcher_bin}' &"
-        subprocess.Popen(["sh", "-c", cmd])
-        rumps.quit_application()
-
-    def on_quit_clicked(self, sender):
-        self._anim_stop_event.set()
-        floating_overlay.stop()
-        if self.daemon_ref:
-            self.daemon_ref.stop_listening()
-        rumps.quit_application()
-
-    def _animation_loop(self):
-        """
-        Loop executado em background para animar a barra de menus do macOS e o badge flutuante.
-        - Dobro da velocidade (0.25s por frame).
-        - Espaçamento constante dos pontos para evitar que o texto balance horizontal ou verticalmente.
-        - Bolinha amarela 🟡 no processamento e vermelha piscante 🔴 no REC.
-        """
-        dot_state = True
-        dots_count = 0
-        while not self._anim_stop_event.is_set():
-            time.sleep(0.25)
-            st = getattr(self, "_current_status", "idle")
-            if st == "listening":
-                # Pisca a lampadinha vermelha a cada 0.25s (🔴 REC e ⚫ REC) na barra de tarefas
-                dot_state = not dot_state
-                anim_text = "🔴 REC" if dot_state else "⚫ REC"
-                self.title = anim_text
-                # Overlay flutuante na parte inferior (5.5% acima da base): orbe de IA + wave + texto piscando
-                floating_overlay.set_mode("listening")
-            elif st == "processing":
-                # Animação de onda viajante nas reticências com largura 100% fixa:
-                # Sempre 3 posições fixas, onde o ponto que "apaga" vira espaço em branco (' '):
-                # Frame 0: "..." (todos presentes)
-                # Frame 1: " .." (ponto 1 vira espaço)
-                # Frame 2: ". ." (ponto 2 vira espaço, ponto 1 reaparece)
-                # Frame 3: ".. " (ponto 3 vira espaço, pontos 1 e 2 presentes)
-                frame = dots_count % 4
-                if frame == 0:
-                    dots_wave = "..."
-                elif frame == 1:
-                    dots_wave = " .."
-                elif frame == 2:
-                    dots_wave = ". ."
-                else:
-                    dots_wave = ".. "
-
-                dots_count += 1
-                anim_text = f"🟡 REC {dots_wave}"
-                self.title = anim_text
-                # Overlay flutuante: spinner e ondas de carregamento enquanto transcreve
-                floating_overlay.set_mode("processing")
+    def ao_alterar_limiar_fatias(self, remetente) -> None:
+        """Permite digitar o tempo inicial antes de gravar fatias de 30s."""
+        configuracoes = obter_configuracoes()
+        janela = rumps.Window(
+            message=(
+                "Digite o tempo inicial de fala contínua (em segundos) antes de "
+                "iniciar o fatiamento preventivo em OGG de 30s:\n\n"
+                f"Atual: {configuracoes.inicio_fatias_segundos}s (Padrão: 40s)"
+            ),
+            title="Limiar de Início das Fatias",
+            default_text=str(configuracoes.inicio_fatias_segundos),
+            ok="Salvar",
+            cancel="Cancelar",
+            dimensions=(280, 24),
+        )
+        resposta = janela.run()
+        if not resposta.clicked:
+            return
+        try:
+            segundos = int(resposta.text.strip())
+            if segundos >= 5:
+                atualizar_configuracoes({"chunk_start_seconds": segundos})
+                remetente.title = f"Iniciar Fatias aos: {segundos}s (Alterar...)"
+                _notificar_usuario(
+                    "Voice Transcription",
+                    "Limiar Atualizado",
+                    f"Fatias preventivas iniciarão após {segundos}s de fala.",
+                )
             else:
-                if self.title != "🟢":
-                    self.title = "🟢"
-                floating_overlay.hide()
+                rumps.alert("Valor Inválido", "O tempo mínimo deve ser de pelo menos 5 segundos.")
+        except ValueError:
+            rumps.alert("Valor Inválido", "Digite um número inteiro válido em segundos.")
 
-    def update_status(self, status: str, detail: Optional[str] = None):
-        """Atualiza o estado da aplicação."""
-        self._current_status = status
-        detail_msg = detail or status.capitalize()
-        self.status_item.title = f"Status: {detail_msg}"
+    def ao_alterar_parada_silencio(self, remetente) -> None:
+        """Permite digitar o limite de silêncio contínuo antes da parada automática."""
+        configuracoes = obter_configuracoes()
+        janela = rumps.Window(
+            message=(
+                "Digite quantos segundos de silêncio contínuo aguardar antes de "
+                "encerrar e transcrever automaticamente:\n\n"
+                f"Atual: {configuracoes.parada_silencio_segundos}s (Padrão: 60s)"
+            ),
+            title="Auto-Parada por Silêncio",
+            default_text=str(configuracoes.parada_silencio_segundos),
+            ok="Salvar",
+            cancel="Cancelar",
+            dimensions=(280, 24),
+        )
+        resposta = janela.run()
+        if not resposta.clicked:
+            return
+        try:
+            segundos = int(resposta.text.strip())
+            if segundos >= 5:
+                atualizar_configuracoes({"silence_auto_stop_seconds": segundos})
+                remetente.title = f"Auto-Parar após Silêncio: {segundos}s (Alterar...)"
+                _notificar_usuario(
+                    "Voice Transcription",
+                    "Auto-Parada Atualizada",
+                    f"A gravação encerrará após {segundos}s de silêncio.",
+                )
+            else:
+                rumps.alert("Valor Inválido", "O tempo mínimo deve ser de pelo menos 5 segundos.")
+        except ValueError:
+            rumps.alert("Valor Inválido", "Digite um número inteiro válido em segundos.")
+
+    def ao_executar_autoteste(self, _remetente) -> None:
+        """Executa o protocolo completo de autoteste de inicialização e resume o resultado."""
+        def _rodar_diagnostico() -> None:
+            relatorio = protocolo_inicializacao.executar_autoteste(
+                servico_voz_ref=self.servico_ref
+            )
+            saudavel = bool(relatorio.get("ok"))
+            duracao = relatorio.get("duracao_ms", 0)
+            etapas = relatorio.get("etapas") or {}
+
+            falhas = [
+                nome_etapa.replace("_", " ")
+                for nome_etapa, dados_etapa in etapas.items()
+                if isinstance(dados_etapa, dict) and not dados_etapa.get("ok", False)
+            ]
+
+            if saudavel and not falhas:
+                subtitulo = "Autoteste Concluído: 100% Saudável"
+                resumo = f"Todas as {len(etapas) or 5} etapas verificadas em {duracao}ms."
+            else:
+                subtitulo = "Autoteste: Atenção Necessária"
+                lista_falhas = ", ".join(falhas) if falhas else "verifique o Painel Web"
+                resumo = f"Pendências detectadas em: {lista_falhas}."
+
+            _notificar_usuario("Voice Transcription", subtitulo, resumo)
+            _despachar_para_thread_principal(self._atualizar_menu_recuperacao)
+
+        threading.Thread(
+            target=_rodar_diagnostico,
+            name="AutotesteBandejaThread",
+            daemon=True,
+        ).start()
+
+    def ao_abrir_painel_web(self, _remetente) -> None:
+        configuracoes = obter_configuracoes()
+        url_painel = f"http://127.0.0.1:{configuracoes.porta}/"
+        webbrowser.open(url_painel)
+
+    def ao_abrir_pasta_historico(self, _remetente) -> None:
+        DIRETORIO_BASE_APP.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["open", str(DIRETORIO_BASE_APP)], check=False)
+
+    def ao_abrir_documentacao(self, _remetente) -> None:
+        caminho_readme = Path(__file__).resolve().parent.parent / "README.md"
+        if caminho_readme.exists():
+            subprocess.run(["open", str(caminho_readme)], check=False)
+
+    def ao_clicar_reiniciar(self, _remetente) -> None:
+        """Reinicia o aplicativo respeitando a porta configurada e o executável empacotado."""
+        configuracoes = obter_configuracoes()
+        porta_ativa = int(configuracoes.porta)
+
+        _notificar_usuario(
+            "Voice Transcription",
+            "Reiniciando Serviço",
+            f"Reiniciando aplicativo e servidor na porta {porta_ativa}...",
+        )
+
+        self._evento_parar_animacao.set()
+        overlay_flutuante.parar()
+        if self.servico_ref is not None:
+            self.servico_ref.parar_escuta()
+
+        executavel_app = obter_executavel_app()
+        if executavel_app.exists():
+            comando_inicio = f"'{executavel_app}'"
+        else:
+            script_principal = Path(__file__).resolve().parent / "main.py"
+            comando_inicio = f"'{sys.executable}' '{script_principal}'"
+
+        comando_shell = (
+            f"kill $(lsof -ti :{porta_ativa}) 2>/dev/null || true; "
+            f"sleep 0.5; {comando_inicio} &"
+        )
+        subprocess.Popen(["sh", "-c", comando_shell])
+        rumps.quit_application()
+
+    def ao_clicar_sair(self, _remetente) -> None:
+        self._evento_parar_animacao.set()
+        overlay_flutuante.parar()
+        if self.servico_ref is not None:
+            self.servico_ref.parar_escuta()
+        rumps.quit_application()
+
+    def _definir_titulo_bandeja_seguro(self, novo_titulo: str) -> None:
+        """Atualiza `self.title` na Main Thread apenas quando o texto muda."""
+        if novo_titulo == self._ultimo_titulo_enviado:
+            return
+        self._ultimo_titulo_enviado = novo_titulo
+
+        def _aplicar_titulo() -> None:
+            self.title = novo_titulo
+
+        _despachar_para_thread_principal(_aplicar_titulo)
+
+    def _laco_animacao(self) -> None:
+        """
+        Anima o ícone da barra de menus a cada 0.25s despachando estritamente
+        para a Main Thread via AppHelper.callAfter.
+        """
+        ponto_aceso = True
+        indice_quadro = 0
+        quadros_reticencias = ("...", " ..", ". .", ".. ")
+
+        while not self._evento_parar_animacao.is_set():
+            time.sleep(0.25)
+            if self._evento_parar_animacao.is_set():
+                break
+
+            estado = self._status_atual
+            if estado == "listening":
+                ponto_aceso = not ponto_aceso
+                texto_animado = "🔴 REC" if ponto_aceso else "⚫ REC"
+                self._definir_titulo_bandeja_seguro(texto_animado)
+                overlay_flutuante.definir_modo("listening")
+            elif estado == "processing":
+                onda_pontos = quadros_reticencias[indice_quadro % len(quadros_reticencias)]
+                indice_quadro += 1
+                self._definir_titulo_bandeja_seguro(f"🟡 REC {onda_pontos}")
+                overlay_flutuante.definir_modo("processing")
+            else:
+                icone_repouso = ICONES_STATUS.get(estado, "🟢")
+                self._definir_titulo_bandeja_seguro(icone_repouso)
+                overlay_flutuante.ocultar()
+
+    def atualizar_status(self, status: str, detalhe: Optional[str] = None) -> None:
+        """
+        Recebe transições de estado do `ServicoVoz` (de qualquer thread) e sincroniza
+        com segurança a barra de menus e o brilho flutuante nativo.
+        """
+        self._status_atual = status
+        mensagem_detalhe = detalhe or ROTULOS_STATUS_PADRAO.get(status, status.capitalize())
 
         if status == "listening":
-            self.record_item.title = "Parar Gravação (Soltar)"
-            floating_overlay.set_mode("listening")
+            rotulo_gravar = "Parar Gravação (Clique)"
+            titulo_imediato = "🔴 REC"
+            overlay_flutuante.definir_modo("listening")
         elif status == "processing":
-            self.record_item.title = "Processando..."
-            floating_overlay.set_mode("processing")
+            rotulo_gravar = "Processando transcrição..."
+            titulo_imediato = "🟡 REC ..."
+            overlay_flutuante.definir_modo("processing")
         else:
-            self.record_item.title = "Gravar Agora (Clique)"
-            self.title = STATUS_ICONS.get(status, "🟢")
-            floating_overlay.hide()
+            rotulo_gravar = "Gravar Agora (Clique)"
+            titulo_imediato = ICONES_STATUS.get(status, "🟢")
+            overlay_flutuante.ocultar()
 
-def create_tray_app(daemon_ref=None) -> VoiceTranscriptionTrayApp:
-    return VoiceTranscriptionTrayApp(daemon_ref=daemon_ref)
+        self._ultimo_titulo_enviado = titulo_imediato
+
+        def _atualizar_itens_na_thread_principal() -> None:
+            self.title = titulo_imediato
+            self.item_status.title = f"Status: {mensagem_detalhe}"
+            self.item_gravar.title = rotulo_gravar
+            if status in ("idle", "error", "no_focus"):
+                self._atualizar_menu_recuperacao()
+
+        _despachar_para_thread_principal(_atualizar_itens_na_thread_principal)
+
+
+def criar_app_bandeja(servico_ref=None) -> AplicativoBandejaVoz:
+    """Fábrica do aplicativo de barra de menus nativo."""
+    return AplicativoBandejaVoz(servico_ref=servico_ref)
