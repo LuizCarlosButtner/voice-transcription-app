@@ -1,35 +1,49 @@
+"""Alerta modal nativo do macOS para seleção manual de destino da transcrição."""
+
 import subprocess
 import time
-from typing import Optional
-from active_app import has_focused_text_input, get_frontmost_app
-from inserter import inserter
 
-def show_input_selection_prompt(text_to_insert: str) -> bool:
-    """
-    Exibe um alerta nativo do macOS quando nenhum campo de texto estiver selecionado.
-    Permite que o usuário:
-    1. Clique em 'Colar no Cursor' -> O app aguarda 2 segundos para o usuário clicar no campo e cola;
-    2. Clique em 'Copiar Texto' -> Copia o texto para a área de transferência;
-    3. Clique em 'Apenas Salvar' -> Mantém no histórico para uso posterior.
-    """
-    clean_preview = (text_to_insert[:60] + "...") if len(text_to_insert) > 60 else text_to_insert
-    clean_preview = clean_preview.replace('"', '\\"')
+import pyperclip
 
-    script = f'''
-    display alert "Voice Transcription: Nenhum campo de texto em foco" message "Sua fala foi transcrita com sucesso:\\n\\"{clean_preview}\\"\\n\\nDeseja colocar este texto em algum campo agora?" buttons {{"Apenas Salvar", "Copiar Texto", "Colar no Cursor"}} default button "Colar no Cursor"
-    '''
+try:
+    from inserter import inseridor
+except ImportError:
+    from backend.inserter import inseridor
+
+
+def exibir_alerta_selecao_campo(texto_para_inserir: str) -> bool:
+    """Exibe alerta nativo quando não há campo de texto em foco, oferecendo colar, copiar ou salvar."""
+    if not texto_para_inserir or not texto_para_inserir.strip():
+        return False
+
+    texto_linear = texto_para_inserir.strip().replace("\r", " ").replace("\n", " ")
+    previa = (texto_linear[:60] + "...") if len(texto_linear) > 60 else texto_linear
+    previa_escapada = previa.replace("\\", "\\\\").replace('"', '\\"')
+
+    roteiro_applescript = (
+        'display alert "Voice Transcription: Nenhum campo de texto em foco" '
+        f'message "Sua fala foi transcrita com sucesso:\\n\\"{previa_escapada}\\"\\n\\n'
+        'Deseja colocar este texto em algum campo agora?" '
+        'buttons {"Apenas Salvar", "Copiar Texto", "Colar no Cursor"} '
+        'default button "Colar no Cursor"'
+    )
+
     try:
-        res = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
-        if res.returncode == 0:
-            btn_clicked = res.stdout.strip()
-            if "Colar no Cursor" in btn_clicked:
-                # Dá 2.5 segundos para o usuário clicar no campo desejado
+        resultado = subprocess.run(
+            ["osascript", "-e", roteiro_applescript],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if resultado.returncode == 0:
+            botao_escolhido = resultado.stdout.strip()
+            if "Colar no Cursor" in botao_escolhido:
                 time.sleep(2.5)
-                return inserter.insert_text(text_to_insert)
-            elif "Copiar Texto" in btn_clicked:
-                import pyperclip
-                pyperclip.copy(text_to_insert)
+                return inseridor.inserir_texto(texto_para_inserir)
+            if "Copiar Texto" in botao_escolhido:
+                pyperclip.copy(texto_para_inserir)
                 return True
     except Exception:
         pass
+
     return False

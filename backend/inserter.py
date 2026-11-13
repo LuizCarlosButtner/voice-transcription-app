@@ -1,106 +1,134 @@
-import time
+"""Inserção de texto transcrito no cursor do aplicativo ativo com preservação da área de transferência."""
+
 import threading
+import time
 from typing import Optional
+
 import pyperclip
 import Quartz
-from config import get_settings
 
-_insertion_lock = threading.Lock()
+try:
+    import config as _modulo_configuracao
+    from config import obter_configuracoes
+except ImportError:
+    from backend import config as _modulo_configuracao
+    from backend.config import obter_configuracoes
 
-def _post_cmd_v_quartz():
-    """
-    Dispara Command + V usando eventos nativos do Quartz CoreGraphics (CGEvent).
-    Funciona no macOS de forma direta e sem depender do daemon osascript.
-    KeyCode 9 = tecla 'v' no teclado padrão do Mac.
-    """
-    # Key down Command + V
-    event_down = Quartz.CGEventCreateKeyboardEvent(None, 9, True)
-    Quartz.CGEventSetFlags(event_down, Quartz.kCGEventFlagMaskCommand)
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event_down)
+_referencia_inicial_config = obter_configuracoes
+
+
+def _ler_configuracoes_atuais():
+    """Obtém as configurações ativas respeitando substituição em testes."""
+    if obter_configuracoes is not _referencia_inicial_config:
+        return obter_configuracoes()
+    return _modulo_configuracao.obter_configuracoes()
+
+_trava_insercao = threading.Lock()
+_CODIGO_TECLA_V_MACOS = 9
+
+
+def _disparar_cmd_v_quartz() -> None:
+    """Dispara o atalho Command + V utilizando eventos nativos do Quartz CoreGraphics."""
+    evento_pressionar = Quartz.CGEventCreateKeyboardEvent(
+        None, _CODIGO_TECLA_V_MACOS, True
+    )
+    Quartz.CGEventSetFlags(evento_pressionar, Quartz.kCGEventFlagMaskCommand)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, evento_pressionar)
     time.sleep(0.02)
-    # Key up V
-    event_up = Quartz.CGEventCreateKeyboardEvent(None, 9, False)
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event_up)
 
-def _post_unicode_string_quartz(text: str):
-    """
-    Digita os caracteres diretamente usando CGEventKeyboardSetUnicodeString.
-    Funciona mesmo se a colagem for bloqueada ou não houver foco direto de clipboard.
-    """
-    for char in text:
-        event_down = Quartz.CGEventCreateKeyboardEvent(None, 0, True)
-        Quartz.CGEventKeyboardSetUnicodeString(event_down, len(char), char)
-        Quartz.CGEventPost(Quartz.kCGHIDEventTap, event_down)
+    evento_soltar = Quartz.CGEventCreateKeyboardEvent(
+        None, _CODIGO_TECLA_V_MACOS, False
+    )
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, evento_soltar)
+
+
+def _digitar_unicode_quartz(texto: str) -> None:
+    """Digita cada caractere Unicode diretamente via CGEventKeyboardSetUnicodeString."""
+    for caractere in texto:
+        evento_pressionar = Quartz.CGEventCreateKeyboardEvent(None, 0, True)
+        Quartz.CGEventKeyboardSetUnicodeString(
+            evento_pressionar, len(caractere), caractere
+        )
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, evento_pressionar)
         time.sleep(0.003)
-        event_up = Quartz.CGEventCreateKeyboardEvent(None, 0, False)
-        Quartz.CGEventPost(Quartz.kCGHIDEventTap, event_up)
 
-class TextInserter:
-    def __init__(self):
-        self._last_insertion_time = 0.0
+        evento_soltar = Quartz.CGEventCreateKeyboardEvent(None, 0, False)
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, evento_soltar)
 
-    def insert_text(self, text: str, method: Optional[str] = None) -> bool:
-        """
-        Insere o texto no aplicativo ativo exatamente na posição do cursor (append no cursor).
-        Preserva o clipboard original do usuário.
-        """
-        if not text or not text.strip():
+
+class InseridorTexto:
+    """Gerencia a inserção sequencial de texto no aplicativo em foco preservando a área de transferência."""
+
+    def __init__(self) -> None:
+        self._ultimo_horario_insercao = 0.0
+
+    def inserir_texto(self, texto: str, metodo: Optional[str] = None) -> bool:
+        """Insere o texto na posição atual do cursor respeitando o método configurado."""
+        if not texto or not texto.strip():
             return False
 
-        settings = get_settings()
-        insertion_method = method or settings.insertion_method or "clipboard_paste"
+        configuracoes = _ler_configuracoes_atuais()
+        metodo_ativo = (
+            metodo
+            or getattr(configuracoes, "metodo_insercao", "clipboard_paste")
+            or "clipboard_paste"
+        )
+        metodo_normalizado = str(metodo_ativo).strip().lower()
+        adicionar_no_cursor = bool(
+            getattr(configuracoes, "adicionar_no_cursor", True)
+        )
 
-        with _insertion_lock:
-            now = time.time()
-            clean_text = text.strip()
-            # Adiciona espaço prévio se já houve inserção recente para manter a frase fluida
-            if (now - self._last_insertion_time < 10.0) and settings.append_at_cursor:
-                if clean_text and clean_text[0] not in " .,!?;:\n":
-                    clean_text = " " + clean_text
+        with _trava_insercao:
+            agora = time.time()
+            texto_formatado = texto.strip()
 
-            if insertion_method == "keystroke":
-                return self._insert_via_keystrokes(clean_text)
-            else:
-                return self._insert_via_clipboard(clean_text)
+            if (agora - self._ultimo_horario_insercao < 10.0) and adicionar_no_cursor:
+                if texto_formatado and texto_formatado[0] not in " .,!?;:\n\t":
+                    texto_formatado = " " + texto_formatado
 
-    def _insert_via_clipboard(self, text: str) -> bool:
-        original_clipboard = ""
+            if metodo_normalizado in ("keystroke", "digitacao"):
+                return self._inserir_via_digitacao(texto_formatado)
+
+            return self._inserir_via_area_transferencia(texto_formatado)
+
+    def _inserir_via_area_transferencia(self, texto: str) -> bool:
+        """Cola o texto via área de transferência e restaura integralmente o valor anterior."""
+        conteudo_original: Optional[str] = None
+        leitura_original_sucesso = False
+
         try:
-            original_clipboard = pyperclip.paste()
+            valor_atual = pyperclip.paste()
+            conteudo_original = "" if valor_atual is None else str(valor_atual)
+            leitura_original_sucesso = True
         except Exception:
-            pass
+            leitura_original_sucesso = False
 
         try:
-            # 1. Copia o novo texto para o clipboard
-            pyperclip.copy(text)
+            pyperclip.copy(texto)
             time.sleep(0.08)
 
-            # 2. Dispara Command + V nativo via Quartz
-            _post_cmd_v_quartz()
-            time.sleep(0.15)  # Tempo para o aplicativo alvo (Notas, Chrome, etc.) absorver o paste
+            _disparar_cmd_v_quartz()
+            time.sleep(0.15)
 
-            # 3. Restaura o clipboard original do usuário
-            if original_clipboard:
-                pyperclip.copy(original_clipboard)
-
-            self._last_insertion_time = time.time()
+            self._ultimo_horario_insercao = time.time()
             return True
+        except Exception:
+            return self._inserir_via_digitacao(texto)
+        finally:
+            if leitura_original_sucesso and conteudo_original is not None:
+                try:
+                    pyperclip.copy(conteudo_original)
+                except Exception:
+                    pass
 
-        except Exception as e:
-            # Fallback para digitação via caracteres Quartz
-            try:
-                _post_unicode_string_quartz(text)
-                self._last_insertion_time = time.time()
-                return True
-            except Exception:
-                return False
-
-    def _insert_via_keystrokes(self, text: str) -> bool:
+    def _inserir_via_digitacao(self, texto: str) -> bool:
+        """Insere o texto simulando digitação Unicode caractere a caractere."""
         try:
-            _post_unicode_string_quartz(text)
-            self._last_insertion_time = time.time()
+            _digitar_unicode_quartz(texto)
+            self._ultimo_horario_insercao = time.time()
             return True
         except Exception:
             return False
 
-inserter = TextInserter()
+
+inseridor = InseridorTexto()
