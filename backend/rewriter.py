@@ -1,195 +1,211 @@
+"""Reescrita de texto transcrito para ajuste de pontuação, tom de voz e tradução."""
+
 import time
-from typing import Dict, Any, Optional
+from typing import Any, Optional
+
 import httpx
-from config import get_groq_key, get_settings
 
-GROQ_CHAT_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
+from config import obter_chave_groq, obter_configuracoes
 
-SYSTEM_PROMPTS = {
+URL_CHAT_GROQ = "https://api.groq.com/openai/v1/chat/completions"
+
+INSTRUCOES_TOM_PTBR: dict[str, str] = {
     "verbatim": """Você é um pontuador gramatical estrito de transcrição de voz em português brasileiro.
 Sua ÚNICA função é adicionar pontuação correta (pontos, vírgulas, interrogações) e ajustar maiúsculas iniciais.
 REGRAS CRÍTICAS INVIOLÁVEIS:
 1. NUNCA altere, substitua, resuma ou remova NENHUMA palavra.
-2. NUNCA censure ou filtre gírias, palavrões ou expressões coloquiais (ex: 'mano', 'caralho', 'porra'). Deixe-as exatamente como faladas.
+2. NUNCA censure ou filtre gírias, palavrões ou expressões coloquiais. Deixe-as exatamente como faladas.
 3. Retorne APENAS o texto pontuado, sem explicações, comentários ou aspas adicionais.""",
-
     "colloquial": """Você é um assistente de estilo para texto falado em português brasileiro.
-Transforme a transcrição em um tom descontraído, natural e coloquial ('suave', 'tranquilo').
+Transforme a transcrição em um tom descontraído, natural e coloquial.
 REGRAS CRÍTICAS:
-1. Reaproveite as próprias palavras e vocabulário do usuário, tornando a frase mais fluida e solta.
+1. Reaproveite as próprias palavras e vocabulário do usuário, tornando a frase mais fluida e natural.
 2. NÃO adicione polidez falsa ou formalismo engessado.
 3. Mantenha gírias ou termos espontâneos usados pelo usuário.
 4. Retorne APENAS o texto reescrito, sem introduções ou aspas.""",
-
     "semiformal": """Você é um assistente de comunicação profissional em português brasileiro.
-Ajuste a transcrição para um tom semiformal equilibrado, claro, objetivo e respeitoso para uso em mensagens e e-mails profissionais do dia a dia.
+Ajuste a transcrição para um tom semiformal equilibrado, claro, objetivo e respeitoso para mensagens e e-mails profissionais do dia a dia.
 REGRAS CRÍTICAS:
 1. Corrija concordância e pontuação mantendo a naturalidade.
 2. Reaproveite a essência das palavras do usuário sem soar artificial ou burocrático.
-3. Retorne APENAS o texto final pronto para envio.""",
-
+3. Retorne APENAS o texto final pronto para envio, sem comentários ou aspas.""",
     "formal": """Você é um assistente de redação formal e polida em português brasileiro.
 Ajuste a transcrição para um tom formal, sofisticado e preciso.
 REGRAS CRÍTICAS:
-1. Eleve o registro linguístico escolhendo palavras mais adequadas e elegantes, mas preservando exatamente o significado original do usuário.
-2. NÃO injete chavões vazios ou polidez robótica desnecessária (evite 'venho por meio desta', 'desde já agradeço').
-3. Retorne APENAS o texto final reescrito, sem comentários."""
+1. Eleve o registro linguístico escolhendo palavras adequadas e elegantes, preservando exatamente o significado original.
+2. NÃO injete chavões vazios ou polidez robótica desnecessária.
+3. Retorne APENAS o texto final reescrito, sem comentários ou aspas.""",
 }
 
-TRANSLATION_SYSTEM_PROMPTS = {
-    "verbatim": """You are a direct speech translator from Brazilian Portuguese into natural, accurate English.
-Translate the spoken input into English preserving the raw meaning, tone, and informalities/slang/curse words if present.
-CRITICAL RULES:
-1. Translate accurately into natural English without softening or censoring anything.
-2. If the user used technical terms, code commands, or CLI concepts, translate appropriately into standard developer English.
-3. Output ONLY the translated English text, without commentary, explanations, or quotes.""",
-
-    "colloquial": """You are an English translator specializing in natural, casual conversational speech.
-Translate the Brazilian Portuguese spoken input into casual, smooth, relaxed English.
-CRITICAL RULES:
-1. Keep the tone conversational, friendly, and natural.
-2. Output ONLY the translated English text without quotes or explanations.""",
-
-    "semiformal": """You are a professional translator from Brazilian Portuguese to English.
-Translate the spoken input into clear, professional, well-structured English suitable for workplace messaging, code reviews, and communications.
-CRITICAL RULES:
-1. Balance clarity, grammar, and natural flow.
-2. Output ONLY the translated English text without quotes or explanations.""",
-
-    "formal": """You are an executive translator from Brazilian Portuguese to formal English.
-Translate the spoken input into polished, sophisticated, and grammatically impeccable English.
-CRITICAL RULES:
-1. Use elevated vocabulary appropriate for formal documentation or international correspondence.
-2. Output ONLY the translated English text without quotes or explanations."""
+INSTRUCOES_TRADUCAO_INGLES: dict[str, str] = {
+    "verbatim": """Você é um tradutor direto de fala do português brasileiro para o inglês natural e fiel.
+Traduza a fala para o inglês preservando integralmente o sentido bruto, o tom e eventuais gírias ou expressões informais.
+REGRAS CRÍTICAS:
+1. Traduza com precisão para o inglês natural sem suavizar nem censurar nada.
+2. Caso o usuário utilize termos técnicos de programação ou linha de comando, use o vocabulário técnico padrão em inglês.
+3. Retorne APENAS o texto traduzido em inglês, sem explicações, comentários ou aspas.""",
+    "colloquial": """Você é um tradutor de português brasileiro para inglês conversacional, fluido e descontraído.
+REGRAS CRÍTICAS:
+1. Mantenha o tom casual, amigável e natural em inglês.
+2. Retorne APENAS o texto traduzido em inglês, sem explicações ou aspas.""",
+    "semiformal": """Você é um tradutor profissional de português brasileiro para inglês corporativo claro e bem estruturado.
+REGRAS CRÍTICAS:
+1. Equilibre clareza, gramática correta e fluidez natural para mensagens de trabalho e revisões técnicas.
+2. Retorne APENAS o texto traduzido em inglês, sem explicações ou aspas.""",
+    "formal": """Você é um tradutor executivo de português brasileiro para inglês formal, polido e gramaticalmente impecável.
+REGRAS CRÍTICAS:
+1. Utilize vocabulário elevado adequado a documentação formal e correspondência internacional.
+2. Retorne APENAS o texto traduzido em inglês, sem explicações ou aspas.""",
 }
 
-class TextRewriter:
-    def __init__(self, api_key: Optional[str] = None):
-        self._explicit_key = api_key
 
-    def _get_key(self) -> Optional[str]:
-        return self._explicit_key or get_groq_key()
+class ReescritorTexto:
+    """Aplica pontuação, estilo de tom e tradução opcional via modelo LLM na Groq."""
 
-    async def rewrite(
+    def __init__(self, chave_api: Optional[str] = None) -> None:
+        self._chave_explicita = chave_api
+
+    def _obter_chave(self) -> Optional[str]:
+        return self._chave_explicita or obter_chave_groq()
+
+    async def reescrever(
         self,
-        raw_text: str,
-        tone: Optional[str] = None,
-        grammar_correction: Optional[bool] = None,
-        translate_to_english: Optional[bool] = None
-    ) -> Dict[str, Any]:
-        """
-        Processa o texto transcrito aplicando correção de gramática, tom de voz e
-        opcionalmente tradução direta de Português para Inglês.
-        """
-        start_time = time.time()
-        if not raw_text or not raw_text.strip():
+        texto_bruto: str,
+        tom: Optional[str] = None,
+        correcao_gramatical: Optional[bool] = None,
+        traduzir_para_ingles: Optional[bool] = None,
+    ) -> dict[str, Any]:
+        """Processa o texto bruto conforme o tom, gramática e opção de tradução."""
+        inicio = time.time()
+        if not texto_bruto or not texto_bruto.strip():
             return {
                 "ok": True,
-                "text": raw_text,
-                "tone": tone or "verbatim",
+                "text": texto_bruto,
+                "tone": tom or "verbatim",
                 "grammar_fixed": False,
                 "translated": False,
                 "took_ms": 0,
-                "fallback_used": False
+                "fallback_used": False,
+                "warning": None,
             }
 
-        settings = get_settings()
-        selected_tone = (tone or settings.tone or "verbatim").lower()
-        if selected_tone not in SYSTEM_PROMPTS:
-            selected_tone = "verbatim"
+        configuracoes = obter_configuracoes()
+        tom_selecionado = (tom or configuracoes.tom or "verbatim").lower()
+        if tom_selecionado not in INSTRUCOES_TOM_PTBR:
+            tom_selecionado = "verbatim"
 
-        should_translate = settings.translate_to_english if translate_to_english is None else translate_to_english
-        apply_grammar = settings.grammar_correction if grammar_correction is None else grammar_correction
+        deve_traduzir = (
+            configuracoes.traduzir_para_ingles
+            if traduzir_para_ingles is None
+            else bool(traduzir_para_ingles)
+        )
+        aplicar_gramatica = (
+            configuracoes.correcao_gramatical
+            if correcao_gramatical is None
+            else bool(correcao_gramatical)
+        )
 
-        # Se não for traduzir, verbatim e sem correção gramatical pedida, devolve na hora
-        if not should_translate and selected_tone == "verbatim" and not apply_grammar:
+        if not deve_traduzir and tom_selecionado == "verbatim" and not aplicar_gramatica:
             return {
                 "ok": True,
-                "text": raw_text.strip(),
-                "tone": selected_tone,
+                "text": texto_bruto.strip(),
+                "tone": tom_selecionado,
                 "grammar_fixed": False,
                 "translated": False,
                 "took_ms": 0,
-                "fallback_used": False
+                "fallback_used": False,
+                "warning": None,
             }
 
-        api_key = self._get_key()
-        if not api_key:
+        chave_api = self._obter_chave()
+        if not chave_api:
             return {
                 "ok": True,
-                "text": raw_text.strip(),
-                "tone": selected_tone,
+                "text": texto_bruto.strip(),
+                "tone": tom_selecionado,
                 "grammar_fixed": False,
                 "translated": False,
                 "took_ms": 0,
                 "fallback_used": True,
-                "warning": "GROQ_API_KEY ausente para reescrita; mantido texto bruto"
+                "warning": "GROQ_API_KEY ausente para reescrita; mantido texto bruto",
             }
 
-        if should_translate:
-            system_instruction = TRANSLATION_SYSTEM_PROMPTS.get(selected_tone, TRANSLATION_SYSTEM_PROMPTS["verbatim"])
+        if deve_traduzir:
+            instrucao_sistema = INSTRUCOES_TRADUCAO_INGLES.get(
+                tom_selecionado,
+                INSTRUCOES_TRADUCAO_INGLES["verbatim"],
+            )
         else:
-            system_instruction = SYSTEM_PROMPTS[selected_tone]
+            instrucao_sistema = INSTRUCOES_TOM_PTBR[tom_selecionado]
 
-        model = settings.groq_llm_model or "qwen/qwen3.8-27b"
+        modelo = configuracoes.modelo_llm_groq or "qwen/qwen3.8-27b"
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                payload = {
-                    "model": model,
+            async with httpx.AsyncClient(timeout=10.0) as cliente:
+                carga_requisicao = {
+                    "model": modelo,
                     "messages": [
-                        {"role": "system", "content": system_instruction},
-                        {"role": "user", "content": raw_text.strip()}
+                        {"role": "system", "content": instrucao_sistema},
+                        {"role": "user", "content": texto_bruto.strip()},
                     ],
                     "temperature": 0.2,
-                    "max_tokens": 1024
+                    "max_tokens": 1024,
                 }
-                headers = {
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json"
+                cabecalhos = {
+                    "Authorization": f"Bearer {chave_api}",
+                    "Content-Type": "application/json",
                 }
+                resposta = await cliente.post(
+                    URL_CHAT_GROQ,
+                    headers=cabecalhos,
+                    json=carga_requisicao,
+                )
+                tempo_ms = int((time.time() - inicio) * 1000)
 
-                resp = await client.post(GROQ_CHAT_ENDPOINT, headers=headers, json=payload)
-                took_ms = int((time.time() - start_time) * 1000)
-
-                if resp.status_code == 200:
-                    data = resp.json()
-                    transformed = data["choices"][0]["message"]["content"].strip()
-                    # Remove eventuais aspas que o modelo coloque ao redor do texto
-                    if transformed.startswith('"') and transformed.endswith('"') and len(transformed) > 2:
-                        transformed = transformed[1:-1].strip()
+                if resposta.status_code == 200:
+                    dados_resposta = resposta.json()
+                    texto_transformado = (
+                        dados_resposta["choices"][0]["message"]["content"].strip()
+                    )
+                    if (
+                        texto_transformado.startswith('"')
+                        and texto_transformado.endswith('"')
+                        and len(texto_transformado) > 2
+                    ):
+                        texto_transformado = texto_transformado[1:-1].strip()
                     return {
                         "ok": True,
-                        "text": transformed,
-                        "tone": selected_tone,
+                        "text": texto_transformado,
+                        "tone": tom_selecionado,
                         "grammar_fixed": True,
-                        "translated": should_translate,
-                        "took_ms": took_ms,
-                        "fallback_used": False
-                    }
-                else:
-                    return {
-                        "ok": True,
-                        "text": raw_text.strip(),
-                        "tone": selected_tone,
-                        "grammar_fixed": False,
-                        "translated": False,
-                        "took_ms": took_ms,
-                        "fallback_used": True,
-                        "warning": f"HTTP {resp.status_code} na API LLM; fallback para verbatim"
+                        "translated": deve_traduzir,
+                        "took_ms": tempo_ms,
+                        "fallback_used": False,
+                        "warning": None,
                     }
 
-        except Exception as e:
-            took_ms = int((time.time() - start_time) * 1000)
+                return {
+                    "ok": True,
+                    "text": texto_bruto.strip(),
+                    "tone": tom_selecionado,
+                    "grammar_fixed": False,
+                    "translated": False,
+                    "took_ms": tempo_ms,
+                    "fallback_used": True,
+                    "warning": f"HTTP {resposta.status_code} na API LLM; mantido texto bruto",
+                }
+        except Exception as erro:
+            tempo_ms = int((time.time() - inicio) * 1000)
             return {
                 "ok": True,
-                "text": raw_text.strip(),
-                "tone": selected_tone,
+                "text": texto_bruto.strip(),
+                "tone": tom_selecionado,
                 "grammar_fixed": False,
                 "translated": False,
-                "took_ms": took_ms,
+                "took_ms": tempo_ms,
                 "fallback_used": True,
-                "warning": f"Exceção {e}; fallback para verbatim"
+                "warning": f"Exceção {erro}; mantido texto bruto",
             }
 
-rewriter = TextRewriter()
+
+reescritor = ReescritorTexto()

@@ -1,25 +1,27 @@
+"""Contrato abstrato base para provedores de transcrição de fala em texto (STT)."""
+
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 
-class BaseSTTProvider(ABC):
+
+class ProvedorBaseSTT(ABC):
+    """Interface obrigatória implementada por todos os provedores de transcrição."""
+
     @property
     @abstractmethod
-    def name(self) -> str:
-        """Identificador único do provedor (ex: 'groq', 'sensevoice')."""
-        pass
+    def nome(self) -> str:
+        """Retorna o identificador único do provedor (ex.: 'groq', 'sensevoice')."""
 
     @abstractmethod
-    async def transcribe(self, audio_path: Path, language: str = "pt") -> Dict[str, Any]:
+    async def transcrever(self, caminho_audio: Path, idioma: str = "pt") -> dict[str, Any]:
         """
-        Executa a transcrição do arquivo de áudio.
-        Retorno padronizado obrigatório:
-        {
-            "ok": bool,
-            "text": str,
-            "provider": str,
-            "took_ms": int,
-            "error": Optional[str]
-        }
+        Executa a transcrição do arquivo de áudio informado.
+
+        Retorna dicionário padronizado com as chaves JSON:
+        - ok: bool
+        - text: str
+        - provider: str
+        - took_ms: int
+        - error: Optional[str]
         """
-        pass
